@@ -1,0 +1,23 @@
+{
+  "name": "@online-word/collab",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Hocuspocus 协作网关（M0 内存态，无持久化）",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hocuspocus/server": "catalog:",
+    "@online-word/shared": "workspace:*",
+    "yjs": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:"
+  }
+}

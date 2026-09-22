@@ -1,0 +1,35 @@
+{
+  "name": "@online-word/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@hocuspocus/provider": "catalog:",
+    "@online-word/shared": "workspace:*",
+    "@tiptap/core": "catalog:",
+    "@tiptap/extension-collaboration": "catalog:",
+    "@tiptap/extension-collaboration-cursor": "catalog:",
+    "@tiptap/extension-placeholder": "catalog:",
+    "@tiptap/pm": "catalog:",
+    "@tiptap/react": "catalog:",
+    "@tiptap/starter-kit": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "y-indexeddb": "catalog:",
+    "y-protocols": "catalog:",
+    "yjs": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}
