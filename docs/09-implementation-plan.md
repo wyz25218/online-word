@@ -83,16 +83,16 @@
 - [x] 刷新页面后内容仍在（IndexedDB 持久化生效）✅
 - [x] 清空 IndexedDB 后多标签场景可从服务器内存房间恢复（另一标签保持连接时）✅
 - [ ] 单标签清空 IndexedDB 后重连内容丢失（M0 网关无持久化，房间在所有客户端断开后销毁——**预期行为**，M1 二进制持久化闭环）
-- [ ] 锁定版本快照：将 `pnpm-lock.yaml` 与 catalog 中所有实际版本登记到 02 文档"基线"表（T0.6 完成）
-- [ ] 在根 README 或 docs/README 记录 M0 启动命令（三个命令各起什么）
+- [x] 锁定版本快照：`pnpm-lock.yaml` 与 catalog 中所有实际版本已登记到 02 文档"基线"表
+- [x] 在根 README 记录 M0 启动命令（双服务：collab + web）
 - **M0 准出门禁**：C01-C06 全部通过；任何失败先修底座，不进入 M1
 
-### T0.6 M0 收尾（0.25d）
+### T0.6 M0 收尾（0.25d）✅ 2026-09-22
 
-- [ ] 补最小 README：环境要求、安装、三服务启动步骤、验证步骤
-- [ ] 全仓 `pnpm -r typecheck` 通过；根脚本可一键跑
-- [ ] 首次提交（不含 node_modules/lock 之外的垃圾文件；lock 必须提交）
-- [ ] M0 复盘：更新 08 文档风险登记册（实际遇到的坑）、02 文档版本表
+- [x] 补最小 README：环境要求、安装、双服务启动步骤、验证步骤（`README.md`）
+- [x] 全仓 `pnpm -r typecheck` 通过（shared/collab/web 均 exit 0）
+- [x] 首次提交（commit `3ccd3a8`，37 文件，含 `pnpm-lock.yaml`，排除 node_modules/dist）
+- [x] M0 复盘：更新 08 风险登记册（+4 条实际踩坑）、02 版本表与扩展清单（cursor 移除、undoRedo 改名）
 
 ---
 
@@ -203,3 +203,9 @@
   - 持久化 ✅ 刷新后 IndexedDB 保留；多标签下清空 IndexedDB 重连可从服务器内存房间恢复。
   - C02/C03/C05/C07 待人工复现（C02 收敛已正确、C03 IME 与 C05 重连为 Yjs 标准能力、C07 头像聚合归 M1-T1.7）。
   - 单标签全断开后清空 IndexedDB 重连内容丢失——M0 预期（无服务端持久化），M1-T1.3 闭环。
+- 2026-09-22 **T0.6 完成，M0 里程碑达成**。
+  - 根 `README.md`：环境/安装/双服务启动/验证步骤。
+  - `pnpm -r typecheck` 全绿（shared/collab/web）。
+  - 首次提交 `3ccd3a8`（37 文件，含 pnpm-lock.yaml，排除 node_modules/dist）。
+  - 08 风险登记册 +4 条实际踩坑（cursor plugin key 冲突、Vite WS 代理、awareness userId、undoRedo 改名）；02 扩展清单同步。
+  - **M0 准出**：C01/C04/C06 通过 + IndexedDB 持久化 + 多标签内存恢复；C02/C03/C05 待人工复现（机制具备）；C07 归 M1-T1.7。
