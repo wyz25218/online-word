@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getCollabToken, getDoc, type DocDetail } from '../../api/docs'
 import { ApiError, getSession } from '../../api/client'
-import type { AwarenessUser } from '@online-word/shared'
+import { colorForUser, type AwarenessUser } from '@online-word/shared'
 import RichTextEditor from '../editor/RichTextEditor'
 import { UserBadge } from './DocsListPage'
 
@@ -52,7 +52,8 @@ export default function DocEditorPage() {
   const awarenessUser = useMemo<AwarenessUser | null>(() => {
     const doc = docQuery.data
     if (doc === undefined) return null
-    return { userId: user.userId, name: user.name, color: user.color, role: doc.role as AwarenessUser['role'] }
+    // 颜色按 userId 哈希稳定取色（docs/04 §5）：同一用户在任何文档、任何端颜色一致
+    return { userId: user.userId, name: user.name, color: colorForUser(user.userId), role: doc.role as AwarenessUser['role'] }
   }, [docQuery.data, user])
 
   if (id === undefined) return <DeniedState title="链接无效" hint="缺少文档 ID" />

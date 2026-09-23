@@ -31,6 +31,22 @@ export interface AwarenessUser {
   role: DocRole
 }
 
+/** ProseMirror 可定位位置（相对偏移，远程光标用；M1 后续任务接入） */
+export interface CursorPosition {
+  anchor: number
+  head: number
+}
+
+/**
+ * 本端写入 awareness 的完整状态（docs/04 §5）：
+ * y-protocols 内置 30s 超时清除离线端；lastUpdate 供未来自定义清理/观测。
+ */
+export interface AwarenessState {
+  user: AwarenessUser
+  cursor: CursorPosition | null
+  lastUpdate: number
+}
+
 /** 网关注入连接上下文（Hocuspocus context） */
 export interface CollabContext {
   user: AwarenessUser
@@ -64,4 +80,20 @@ export function roleAtLeast(role: DocRole, required: DocRole): boolean {
 /** role → 网关写权限映射 */
 export function permissionOf(role: DocRole): Permission {
   return role === 'owner' || role === 'editor' ? 'write' : 'read'
+}
+
+/** 光标/头像取色板（docs/04 §5：按 userId 哈希稳定分配） */
+export const COLOR_PALETTE = [
+  '#f5a623', '#f8e71c', '#7ed321', '#4a90d9',
+  '#9013fe', '#e0447c', '#50e3c2', '#ff6b6b',
+] as const
+
+/** userId → 色板索引的稳定哈希（FNV-1a 32bit）；同一用户在任何文档、任何端取色一致 */
+export function colorForUser(userId: string): string {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < userId.length; i++) {
+    hash ^= userId.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return COLOR_PALETTE[(hash >>> 0) % COLOR_PALETTE.length] ?? '#4a90d9'
 }

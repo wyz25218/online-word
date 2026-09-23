@@ -1,4 +1,5 @@
 import { createStore } from 'zustand'
+import type { AwarenessUser } from '@online-word/shared'
 
 /**
  * 协同连接状态（docs/05 §3：连接状态归 zustand，不进 React state）。
@@ -13,6 +14,8 @@ export type CollabStatus = 'syncing' | 'connected' | 'offline' | 'denied'
 export interface CollabStoreState {
   status: CollabStatus
   synced: boolean
+  /** 在线用户（awareness 聚合，按 userId 去重；同一账号多标签只显示一个头像） */
+  onlineUsers: AwarenessUser[]
 }
 
 export type CollabStore = ReturnType<typeof createCollabStore>
@@ -21,9 +24,10 @@ export type CollabStore = ReturnType<typeof createCollabStore>
  * 每篇文档的连接各建一个 store 实例（随 provider 生命周期创建/丢弃），
  * 避免全局单例在文档切换时的状态残留与重置逻辑。
  */
-export function createCollabStore() {
+export function createCollabStore(me: AwarenessUser) {
   return createStore<CollabStoreState>()(() => ({
     status: 'syncing',
     synced: false,
+    onlineUsers: [me],
   }))
 }

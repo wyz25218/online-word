@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
 import { EditorContent } from '@tiptap/react'
 import { useStore } from 'zustand'
 import { roleAtLeast, type AwarenessUser } from '@online-word/shared'
-import type { HocuspocusProvider } from '@hocuspocus/provider'
 import { useCollabDoc, type CollabHandles } from './hooks/useCollabDoc'
+import type { CollabStore } from './collab.store'
 import { useTiptapEditor } from './hooks/useTiptapEditor'
 
 interface Props {
@@ -65,7 +64,7 @@ function StatusBar({ handles, user, docId }: { handles: CollabHandles; user: Awa
           重新连接
         </button>
       )}
-      <OnlineUsers provider={handles.provider} me={user} />
+      <OnlineUsers store={handles.store} me={user} />
       <span style={{ marginLeft: 'auto' }}>文档 ID：{docId}</span>
     </div>
   )
@@ -77,27 +76,9 @@ function EditorView({ handles, user }: { handles: CollabHandles; user: Awareness
   return <EditorContent editor={editor} className="ProseMirror" />
 }
 
-/** 基于 awareness 展示在线用户（M0 替代精确远程光标；T1.7 迁入 zustand 并做聚合去重） */
-function OnlineUsers({ provider, me }: { provider: HocuspocusProvider; me: AwarenessUser }) {
-  const [users, setUsers] = useState<AwarenessUser[]>([me])
-
-  useEffect(() => {
-    const aw = provider.awareness
-    if (!aw) return
-    const collect = () => {
-      const map = new Map<string, AwarenessUser>()
-      aw.getStates().forEach((state) => {
-        const u = state.user as AwarenessUser | undefined
-        if (u && u.userId) map.set(u.userId, u)
-      })
-      // 确保自己始终在列表中（即使 awareness 尚未上报）
-      if (!map.has(me.userId)) map.set(me.userId, me)
-      setUsers(Array.from(map.values()))
-    }
-    aw.on('change', collect)
-    collect()
-    return () => { aw.off('change', collect) }
-  }, [provider, me])
+/** 在线用户：订阅 store（useCollabDoc 已按 userId 聚合去重，T1.7 迁入 zustand） */
+function OnlineUsers({ store, me }: { store: CollabStore; me: AwarenessUser }) {
+  const users = useStore(store, (s) => s.onlineUsers)
 
   return (
     <span className="online-users">

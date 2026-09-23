@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createDoc, deleteDoc, listDocs, renameDoc } from '../../api/docs'
 import { clearSession, getSession, type SessionUser } from '../../api/client'
+import { colorForUser } from '@online-word/shared'
 
 const ROLE_LABEL: Record<string, string> = {
   owner: '拥有者',
@@ -128,7 +129,7 @@ export default function DocsListPage() {
 export function UserBadge({ user }: { user: SessionUser }) {
   return (
     <span className="user-badge">
-      <span className="user-dot" style={{ background: user.color }} />
+      <span className="user-dot" style={{ background: colorForUser(user.userId) }} />
       {user.name}
       <button
         className="btn btn-ghost"

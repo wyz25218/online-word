@@ -107,7 +107,7 @@
 - [x] **T1.4 快照压缩（1.5d）✅ 2026-09-23**：阈值触发（M0 阈值 100 条/2MB）；锁+事务内 encode → upsert snapshot → 删旧增量；`onDestroy` 强制压缩；失败置房间只读
 - [x] **T1.5 真实鉴权（1.5d）✅ 2026-09-23**：collab `onAuthenticate` 接 server `/internal/docs/:id/membership`；Redis 缓存 60s；viewer 只读（网关丢弃写 + 前端 setEditable 双保险）；WS token 校验
 - [x] **T1.6 离线与连接状态（1d）✅ 2026-09-23**：确认 y-indexeddb 全链路；zustand 接入；连接状态条四态（connected/syncing/offline/denied）；认证失败停止重试
-- [ ] **T1.7 Presence（1d）**：awareness 字段按 shared 类型固化；头像组按 userId 聚合；多标签去重；30s 超时清理；稳定取色
+- [x] **T1.7 Presence（1d）✅ 2026-09-23**：awareness 字段按 shared 类型固化；头像组按 userId 聚合；多标签去重；30s 超时清理；稳定取色
 - [ ] **T1.8 踢人/降权（1d）**：server 权限变更 → 删鉴权缓存 + Redis PUBLISH；collab 房间订阅 → closeConnection；前端只读提示
 - [ ] **T1.9 基础工具栏 + 字数（1d）**：粗斜删/H1-H3/列表/引用；undo/redo 接 y undoManager；CharacterCount；用 useEditorState 选择器防重渲染
 - [ ] **T1.10 崩溃恢复演练（1d）**：kill -9 collab 后重启零丢失验证；onLoadDocument 回放性能观察；补 Vitest 单测（appendUpdate 幂等、压缩事务）
@@ -263,3 +263,10 @@
   - 验证（浏览器 agent + 服务端日志 + DB 回放脚本三重证据，全 PASS）：①基线 alice（editor）打开测试文档状态条「已连接」；②**offline 全链路**——taskkill 杀 collab → 状态条 8s 内变「离线（重连中）」→ 离线键入「离线编辑验证A1」（编辑器接受、本地渲染）→ 重启 collab → **自动重连**回「已连接」→ 刷新正文完整 → node 脚本回放 DB（snapshot v9，增量已被房间卸载压缩合并）确认含「离线编辑验证A1」（离线内容经重连同步落库，y-indexeddb 链路闭环）；③**认证失败停止重试**——JWT_COLLAB_SECRET 换错值重启 → 浏览器 denied 态 + 「重新连接」按钮 + 服务端 15s 内 permission denied 仅 1 次（无循环）；④**续签恢复**——换回正确 secret 重启 → 点击「重新连接」→ getToken 缓存已过期自动换新 token → `[auth] ok` → 继续编辑正常。
   - 环境坑：多轮验证后台 job 泄漏堆积 7 个 tsx watch 残留进程（EADDRINUSE 的真凶）——按 `Get-CimInstance Win32_Process -Filter "Name='node.exe'"` 过滤 tsx 命令行全量清理后重起单实例；taskkill /T 杀 server 子进程后 tsx watch 自动 Rerunning 可能撞端口窗口期崩溃留孤儿进程，进程治理要按父进程树清。DB 回放脚本坑：Y.XmlFragment 须 `toArray()` 迭代（不可直接 for-of）。
   - 遗留：jti 去重不做；offline 期间 provider 消息队列 flush 依赖 y sync 协议兜底（重连后按状态向量推 diff），无需额外处理。
+- 2026-09-23 **T1.7 完成**。
+  - shared 固化 awareness 协议契约（docs/04 §5）：`CursorPosition {anchor,head}`（远程光标 M1 后续任务接入，本任务先置 null）+ `AwarenessState {user,cursor,lastUpdate}`；web 端写入 user/cursor/lastUpdate 三字段，15s 心跳刷新 lastUpdate（供未来自定义清理/观测）。**30s 超时清理不自己实现**——y-protocols Awareness 内置 checkInterval 已处理，前端只需响应 change 事件重算。
+  - 稳定取色：shared 新增 `COLOR_PALETTE`（8 色）+ `colorForUser(userId)`（FNV-1a 32bit 哈希取索引，兜底 '#4a90d9'——noUncheckedIndexedAccess 下数组索引返回 `T | undefined`）。DocEditorPage 的 awarenessUser 与页头 UserBadge 统一改用 colorForUser，**server 桩下发的 color 不再用于展示**（此前页头徽章与在线列表同用户不同色的不一致即源于此）。
+  - 在线用户迁入 zustand：`createCollabStore(me)` 增加 `onlineUsers` 字段（初值 [me]），useCollabDoc 订阅 awareness change → Map 按 userId 聚合去重 → store；OnlineUsers 组件从本地 state 改 `useStore` 订阅，组件内聚合逻辑上移到 hook。
+  - **验证坑**：浏览器 agent 读取 `.user-dot` 颜色时把页头 UserBadge 的徽章（3 个 dot 中的 #1a73e8）误当 awareness chip 报告——实际 awareness chips 的 #4a90d9(alice)/#f8e71c(bob) 与 node 端 colorForUser 计算值逐一吻合；结论以代码 grep + node 精确计算为准。
+  - 验证（浏览器 agent，全 PASS）：①alice 单人在线 1 人、色 #4a90d9；②bob 加入后两端均"在线 2 人"、色 #f8e71c；③alice 同账号开第三标签 → 在线人数仍 2（userId 聚合去重生效）；④关闭 bob 标签等 35s → alice 端自动回落"在线 1 人"（y-protocols 30s 超时清理生效）。
+  - 遗留：cursor 字段已固化但未接 ProseMirror 位置（远程光标），归 M1 后续/T1.9 之后评估。

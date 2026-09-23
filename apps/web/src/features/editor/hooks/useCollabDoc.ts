@@ -30,7 +30,7 @@ export function useCollabDoc(docId: string, user: AwarenessUser, getToken: () =>
   const [handles, setHandles] = useState<CollabHandles | null>(null)
 
   useEffect(() => {
-    const store = createCollabStore()
+    const store = createCollabStore(user)
     const ydoc = new Y.Doc({ gc: true })
     // 本地持久化：离线编辑 + 秒开历史文档（offline 期间的编辑先落 IndexedDB，
     // 重连后由 y 同步协议将本地增量推给服务端，双向收敛）
@@ -64,17 +64,39 @@ export function useCollabDoc(docId: string, user: AwarenessUser, getToken: () =>
     })
     providerRef = provider
 
-    // 上报本地用户信息到 awareness（用于在线用户展示 / M1 远程光标）
-    provider.awareness?.setLocalStateField('user', {
+    // T1.7 Presence：awareness 字段按 shared AwarenessState 固化（docs/04 §5），
+    // user.color 由编辑页按 colorForUser(userId) 稳定取色
+    const aw = provider.awareness
+    aw?.setLocalStateField('user', {
       userId: user.userId,
       name: user.name,
       color: user.color,
       avatar: user.avatar,
     })
+    aw?.setLocalStateField('cursor', null)
+    aw?.setLocalStateField('lastUpdate', Date.now())
+
+    // lastUpdate 心跳（docs/04 §5 字段契约）；离线端由 y-protocols 内置 30s 超时清除
+    const heartbeat = setInterval(() => aw?.setLocalStateField('lastUpdate', Date.now()), 15_000)
+
+    // awareness 变化 → 按 userId 聚合去重写入 store（同一账号多标签只显示一个头像）
+    const collectUsers = () => {
+      const map = new Map<string, AwarenessUser>()
+      aw?.getStates().forEach((state) => {
+        const u = state.user as AwarenessUser | undefined
+        if (u && u.userId) map.set(u.userId, u)
+      })
+      // 确保自己始终在列表中（即使 awareness 尚未广播回来）
+      if (!map.has(user.userId)) map.set(user.userId, user)
+      store.setState({ onlineUsers: Array.from(map.values()) })
+    }
+    aw?.on('change', collectUsers)
 
     setHandles({ ydoc, provider, store })
 
     return () => {
+      clearInterval(heartbeat)
+      aw?.off('change', collectUsers)
       provider.destroy()
       ydoc.destroy()
     }
