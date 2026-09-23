@@ -23,15 +23,18 @@ export async function loadDocState(docId: string, doc: Y.Doc): Promise<void> {
     console.warn(`[persist] room=${docId} 非文档 UUID，仅内存态不落库`)
     return
   }
+  const t0 = Date.now()
   const baseline = await loadDocBaseline(docId)
+  const t1 = Date.now()
   if (baseline.snapshot !== null) {
     Y.applyUpdate(doc, baseline.snapshot)
   }
   for (const update of baseline.updates) {
     Y.applyUpdate(doc, update)
   }
+  const t2 = Date.now()
   console.log(
-    `[persist] room=${docId} loaded snapshot=${baseline.snapshot !== null ? 'yes' : 'no'}@v${baseline.snapshotVersion} updates=${baseline.updates.length}`,
+    `[persist] room=${docId} loaded snapshot=${baseline.snapshot !== null ? 'yes' : 'no'}@v${baseline.snapshotVersion} updates=${baseline.updates.length} query=${t1 - t0}ms replay=${t2 - t1}ms total=${t2 - t0}ms`,
   )
 }
 

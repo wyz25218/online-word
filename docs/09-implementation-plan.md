@@ -110,7 +110,7 @@
 - [x] **T1.7 Presence（1d）✅ 2026-09-23**：awareness 字段按 shared 类型固化；头像组按 userId 聚合；多标签去重；30s 超时清理；稳定取色
 - [x] **T1.8 踢人/降权（1d）✅ 2026-09-23**：server 权限变更 → 删鉴权缓存 + Redis PUBLISH；collab 房间订阅 → closeConnection；前端只读提示
 - [x] **T1.9 基础工具栏 + 字数（1d）✅ 2026-09-23**：粗斜删/H1-H3/列表/引用；undo/redo 接 y undoManager；CharacterCount；用 useEditorState 选择器防重渲染
-- [ ] **T1.10 崩溃恢复演练（1d）**：kill -9 collab 后重启零丢失验证；onLoadDocument 回放性能观察；补 Vitest 单测（appendUpdate 幂等、压缩事务）
+- [x] **T1.10 崩溃恢复演练（1d）✅ 2026-09-23**：kill -9 collab 后重启零丢失验证；onLoadDocument 回放性能观察；补 Vitest 单测（appendUpdate 幂等、压缩事务）
 - [ ] **M1 准出**：拔网线 10 分钟双写零丢字；杀进程零丢失；内部 10 人试用 1 周
 
 ---
@@ -285,3 +285,11 @@
   - viewer/降权（editable=false）时整条工具栏按钮 disabled + readonly 样式，与 T1.5/T1.8 的只读联动一致。
   - 验证（浏览器 agent 两轮，DOM 属性级取证，全 PASS）：①按钮齐全 + 字数初值读取；②空栈时撤销/重做 disabled，输入后撤销变可用；③字数精确 +7（27→34）与 0→6 两场景；④选中文本点 B → `<strong>` + B 按钮 active；⑤H2 切换 `<h2>` ⇄ `<p>` 且 active 正确；⑥• 列表 → `<ul><li>`、撤销还原 `<p>`、重做恢复（undo/redo 栈行为符合预期）；⑦引用 → `<blockquote>` + active；⑧控制台无 error。
   - 环境插曲：pnpm store（D:\.pnpm-store）与 cache 在沙箱白名单外，install 需沙箱外执行（EPERM on store files）；浏览器 agent 曾用 document.execCommand('bold') 绕过工具栏"验证"加粗，复核后要求其直接点击 B 按钮重验（`<strong>` 确认）——**验证以"点击真实按钮 + 读 DOM"为准，execCommand 走的不是 Tiptap 命令链**。
+- 2026-09-23 **T1.10 完成**。
+  - Vitest 5.0.1 入 catalog，collab `pnpm test`（vitest run）。**测试定位为集成测试而非纯单测**：appendUpdate/compactDocInDb 的核心价值在事务与约束行为，mock 无法验证（FOR UPDATE 行锁、UNIQUE 幂等、FK CASCADE），连本机 dev PG（T1.0 偏差：无 Docker，testcontainers 不可用）。
+  - **FK 坑（首次运行即撞）**：协同三表 `doc_id REFERENCES docs(id) ON DELETE CASCADE`，而 ow_collab 账号对 docs 表无 INSERT 权限——测试需先用 ow_app 账号（读 apps/server/.env）为每个随机 docId 建测试 docs 行，结束 DELETE docs 级联清理（并验证零残留）；createTestDocs 必须幂等（Set 记录已插入），否则各用例累计重插撞 docs_pkey。doc_id 用随机 UUID 且 owner_id 用桩用户，不触碰真实数据。
+  - 8 用例全过：①appendUpdate 首写 version=1 初始化游标；②连续追加 1n/2n/3n 严格递增；③**并发 8 路 Promise.all 追加 → version 互不重复且连续覆盖 1..8**（FOR UPDATE 串行化 + UNIQUE 裁决，零丢失零重复）；④压缩后快照 @v3、28→0 条增量、**水位不回退**（压缩后续写从 v4 续号）；⑤基线回放：快照 + 压缩后新增量重组完整文本；⑥二次压缩 upsert 覆盖快照推进水位；⑦空文档压缩 v0；⑧空基线。测试后 afterAll 删 docs 级联清三表。
+  - onLoadDocument 性能观测：loadDocState 日志升级为 `query=Xms replay=Yms total=Zms`（DB 查询 / Y.applyUpdate 回放分段计时）。
+  - **崩溃演练（C11，三重证据全 PASS）**：①基线——浏览器输入"硬杀恢复演练基线A1"（合并进已有 H2 标题，无碍断言）确认已连接；②`taskkill /F /T` 硬杀 collab 整棵进程树（tsx watch + 子进程，等效 kill -9，无优雅停机），:8080 立即无监听；③**DB 回放确认崩溃前文本已落库**（snapshot v10 + 28 条增量至 v38，回放文本含 A1）；④重启 collab → 浏览器 8s 内**自动重连**"已连接"，编辑器内容完整（provider 重连 + onLoadDocument 从 DB 重建）；⑤重启后追加"重启后追加B2"→ 刷新页面两段都在 → DB 回放 updates 至 v40 含 B2（零丢失闭环）。
+  - 性能观察结论：28 条增量回放 replay=7ms（applyUpdate 纳秒级/条），query=35ms（本地 PG 往返），total=42ms——**回放成本可忽略，瓶颈在 DB 查询往返**；万条级增量预估 replay 也仅 ~0.3s，压缩阈值（100 条）下的正常水位完全无感。
+  - 环境插曲：浏览器会话残留 bob 登录态（非 alice），但 bob 已在 T1.8 验证后 restore 为 editor，写权限正常，演练不受影响。

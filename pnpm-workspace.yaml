@@ -11,6 +11,7 @@ catalog:
   typescript: 7.0.2
   tsx: 4.23.15
   '@types/node': 22.20.4
+  vitest: 5.0.1
 
   # --- Prisma 7（latest 标签指向 8.0.0-rc，稳定线为 7.x；运行时用 @prisma/adapter-pg） ---
   prisma: 7.10.0
