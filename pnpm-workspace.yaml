@@ -17,6 +17,18 @@ catalog:
   '@prisma/client': 7.10.0
   '@prisma/adapter-pg': 7.10.0
 
+  # --- NestJS 12（ESM-native。注意：dev 必须用 tsc 编译——tsx/esbuild 不产出
+  #     emitDecoratorMetadata，NestJS DI 的 design:paramtypes 元数据会缺失） ---
+  '@nestjs/common': 12.0.4
+  '@nestjs/core': 12.0.4
+  '@nestjs/platform-express': 12.0.4
+  rxjs: 7.8.2
+  reflect-metadata: 0.2.2
+
+  # --- 认证 / 校验 ---
+  jose: 6.2.12
+  zod: 4.6.5
+
   # --- React（方案基线为 18.3.1，实施时当前稳定线为 19.3，Tiptap v3 peer 已声明支持 ^19） ---
   react: 19.3.0
   react-dom: 19.3.0

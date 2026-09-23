@@ -101,7 +101,7 @@
 > 每项完成后勾选；含数据库的任务依赖 docker-compose 就绪。
 
 - [x] **T1.0 基础设施（1d）✅ 2026-09-23**：`docker-compose.yml`（postgres15、redis7、minio）；server/collab 的 `.env.example`；Prisma 初始化（**偏差见进度日志：本机无 Docker，改原生 Windows 服务；Prisma 锁 7.10.0**）
-- [ ] **T1.1 认证（1.5d）**：NestJS 骨架；`POST /auth/login`（桩用户表）；JWT access/refresh 签发；`GET /collab/token?docId=`（绑定 docId、5min、jti）
+- [x] **T1.1 认证（1.5d）✅ 2026-09-23**：NestJS 骨架；`POST /auth/login`（桩用户表）；JWT access/refresh 签发；`GET /collab/token?docId=`（绑定 docId、5min、jti）
 - [ ] **T1.2 文档 CRUD + 列表页（2d）**：docs 表与接口（06 文档）；web 引入 react-router、react-query；列表页/编辑页路由；新建/重命名/软删除；编辑页先验权限再挂编辑器（无权限态，不建 WS）
 - [ ] **T1.3 二进制持久化（2.5d）**：建表（03 文档 DDL）；collab 独立最小 DB client（仅两表权限的账号）；`docStore.loadState`（快照+增量回放）；`appendUpdate`（Redis 锁 + 水位行 `FOR UPDATE` + UNIQUE 幂等）；新建文档事务写空快照基线
 - [ ] **T1.4 快照压缩（1.5d）**：阈值触发（M0 阈值 100 条/2MB）；锁+事务内 encode → upsert snapshot → 删旧增量；`onDestroy` 强制压缩；失败置房间只读
@@ -216,3 +216,11 @@
   - **TS7 兼容性验证（T0 计划中的最大风险点）**：Prisma 7 生成客户端 + `@prisma/adapter-pg` 在 TypeScript 7.0.2 strict 下 typecheck 通过；运行时冒烟 `$queryRawUnsafe('SELECT 1')` 返回 `[{ok:1}]`。**结论：T1.1 无需回退 TS 5.6**。
   - 新增文件：`docker-compose.yml`、`apps/server/.env.example`、`apps/collab/.env.example`、`apps/server/prisma/schema.prisma`（M1 模型待 T1.2）、`apps/server/prisma.config.ts`、`apps/server/tsconfig.json`（NodeNext+ESM）、`apps/server/src/prisma.ts`（client 单例）、`.infra/start-dev.bat`。
   - 验收：`pnpm -r typecheck` exit 0（含 server）；Memurai PONG；psql 双角色登录 OK。
+- 2026-09-23 **T1.1 完成**。
+  - **NestJS 版本**：当前 latest **12.0.4**（ESM-native，包声明 `type: module`），与仓库 ESM/NodeNext 约定契合；`@nestjs/* 12.0.4`、rxjs 7.8.2、reflect-metadata 0.2.2、jose 6.2.12、zod 4.6.5 均已回填 catalog。
+  - **TS7 兼容性（实现前探针验证）**：TS 7.0.2 支持 experimentalDecorators + emitDecoratorMetadata（编译产物含 `design:paramtypes`）✅；NestJS 12 d.ts 在 7.0.2 strict 下 typecheck 通过 ✅；运行时 DI 正常 ✅。**结论：无需回退 TS 5.6**。
+  - **关键坑 1：NestJS dev 不能用 tsx**——esbuild 不支持 emitDecoratorMetadata（实测 tsx 下 `Reflect.getMetadata('design:paramtypes')` 为 undefined），构造器注入运行时全部失效。新 dev 编排：`apps/server/scripts/dev.mjs`（`tsc --watch` + `node --watch dist` 双进程），根命令 `pnpm dev:server`（顺带修正原 filter 名错误 `server`→`@online-word/server`）。
+  - **关键坑 2：jose `setExpirationTime(number)` 语义是绝对 Unix 秒而非时长**——首版签出 `exp:900`（1970 年）秒过期。已改为 `nowSec() + ttl` 显式换算。
+  - 实现：auth 模块（login/refresh/collab-token，Bearer Guard + `@CurrentUser`）；三类 JWT（access/refresh/collab）以 `use` 声明防跨用、独立密钥隔离（新增 `JWT_COLLAB_SECRET`，collab 网关 T1.5 持同钥验签）；校验用 zod 自定义管道（不引入 class-validator/class-transformer：CJS 且重依赖元数据，与 Nest12 ESM 不搭）。
+  - 验证：`pnpm -r typecheck` exit 0；正例（login 200/refresh 轮换/collab-token payload 含 docId+jti、exp-iat=300s）+ 负例 6 组（错密码 401、缺字段 400、无 Bearer 401、access 冒用 refresh 401、伪造 token 401、缺 docId 400）全部符合预期。
+  - 备注：jti 一次性防重放的网关侧去重归 T1.5；refresh 撤销名单归 M2 安全加固；users 表落库后替换桩用户并引入密码哈希。
