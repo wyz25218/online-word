@@ -15,6 +15,7 @@
     "@tanstack/react-query": "catalog:",
     "@tiptap/core": "catalog:",
     "@tiptap/extension-collaboration": "catalog:",
+    "@tiptap/extension-character-count": "catalog:",
     "@tiptap/extension-collaboration-cursor": "catalog:",
     "@tiptap/extension-placeholder": "catalog:",
     "@tiptap/pm": "catalog:",

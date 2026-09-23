@@ -109,7 +109,7 @@
 - [x] **T1.6 离线与连接状态（1d）✅ 2026-09-23**：确认 y-indexeddb 全链路；zustand 接入；连接状态条四态（connected/syncing/offline/denied）；认证失败停止重试
 - [x] **T1.7 Presence（1d）✅ 2026-09-23**：awareness 字段按 shared 类型固化；头像组按 userId 聚合；多标签去重；30s 超时清理；稳定取色
 - [x] **T1.8 踢人/降权（1d）✅ 2026-09-23**：server 权限变更 → 删鉴权缓存 + Redis PUBLISH；collab 房间订阅 → closeConnection；前端只读提示
-- [ ] **T1.9 基础工具栏 + 字数（1d）**：粗斜删/H1-H3/列表/引用；undo/redo 接 y undoManager；CharacterCount；用 useEditorState 选择器防重渲染
+- [x] **T1.9 基础工具栏 + 字数（1d）✅ 2026-09-23**：粗斜删/H1-H3/列表/引用；undo/redo 接 y undoManager；CharacterCount；用 useEditorState 选择器防重渲染
 - [ ] **T1.10 崩溃恢复演练（1d）**：kill -9 collab 后重启零丢失验证；onLoadDocument 回放性能观察；补 Vitest 单测（appendUpdate 幂等、压缩事务）
 - [ ] **M1 准出**：拔网线 10 分钟双写零丢字；杀进程零丢失；内部 10 人试用 1 周
 
@@ -278,3 +278,10 @@
   - **踢人闭环链路**：server DELETE 成员 → DEL 缓存 + PUBLISH → collab close(4003) → provider 视为连接关闭**自动重连**（T1.6 的 getToken 续签在 open 时触发）→ onAuthenticate 实时查库（缓存已删）→ permission denied → 前端手动 disconnect 停止重试 → denied 态。降权场景同理重连后 scope=readonly，连接级只读生效。
   - 踩坑：①MembersController 的 JwtAuthGuard 在 PermissionsModule 上下文实例化，需 imports AuthModule（Nest Guard 依赖解析坑，与 T1.2 同款）；②server 无全局 API 前缀（/api 只是 Vite 代理层），验证脚本 BASE 直接 `http://localhost:3000`。
   - 验证（node 脚本四命令 + 浏览器双标签端到端，全 PASS）：①REST——alice 登录后 list 返回 3 成员、PATCH bob→viewer 200、DELETE bob 204；②降权——collab 日志 `[control] membership-changed ... kicked=1` → bob 自动重连 `[auth] role=viewer permission=read (readOnly)` → bob 界面「权限已调整：只读」徽标、输入被阻止；③踢出——DELETE 后 kicked=1 → bob 重连 permission denied，15s 窗口无重试循环 → 「连接被拒绝」+「重新连接」按钮；④验证后 restore 恢复 bob=editor，临时脚本已删。
+- 2026-09-23 **T1.9 完成**。
+  - 依赖：catalog 增 `@tiptap/extension-character-count: 3.31.3`（v3 该包是 `@tiptap/extensions` 的 re-export 薄壳，storage API 为 `editor.storage.characterCount.characters()/words()`，limit=null 纯统计不截断）。**undo/redo 零新增依赖**：读 Collaboration 扩展源码确认其自动挂 yUndoPlugin 并注册 `editor.commands.undo()/redo()`（can() 按 undoStack/redoStack 长度判定），StarterKit 的 undoRedo:false 保持即可，无需任何 UndoManager 接线。
+  - `Toolbar` 组件（RichTextEditor.tsx 内）：撤销/重做、B/I/S、H1-H3、• 列表/1. 列表、引用共 12 按钮 + 分隔符，命令统一 `editor.chain().focus().toggleXxx().run()`（docs/05 §5）；字数统计挂在工具栏行尾。
+  - **重渲染控制**：active/disabled/字数全部经 `useEditorState({editor, selector})` 派生（v3 签名：selector 接收 `{editor, transactionNumber}`，editor 可 null；默认 deepEqual 比对），编辑器 body 不订阅整份 state；协同远端更新也走 dispatchTransaction，字数/他人状态自动联动。
+  - viewer/降权（editable=false）时整条工具栏按钮 disabled + readonly 样式，与 T1.5/T1.8 的只读联动一致。
+  - 验证（浏览器 agent 两轮，DOM 属性级取证，全 PASS）：①按钮齐全 + 字数初值读取；②空栈时撤销/重做 disabled，输入后撤销变可用；③字数精确 +7（27→34）与 0→6 两场景；④选中文本点 B → `<strong>` + B 按钮 active；⑤H2 切换 `<h2>` ⇄ `<p>` 且 active 正确；⑥• 列表 → `<ul><li>`、撤销还原 `<p>`、重做恢复（undo/redo 栈行为符合预期）；⑦引用 → `<blockquote>` + active；⑧控制台无 error。
+  - 环境插曲：pnpm store（D:\.pnpm-store）与 cache 在沙箱白名单外，install 需沙箱外执行（EPERM on store files）；浏览器 agent 曾用 document.execCommand('bold') 绕过工具栏"验证"加粗，复核后要求其直接点击 B 按钮重验（`<strong>` 确认）——**验证以"点击真实按钮 + 读 DOM"为准，execCommand 走的不是 Tiptap 命令链**。

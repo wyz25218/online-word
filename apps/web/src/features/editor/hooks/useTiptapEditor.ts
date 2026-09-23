@@ -1,6 +1,7 @@
 import { useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
+import CharacterCount from '@tiptap/extension-character-count'
 import Collaboration from '@tiptap/extension-collaboration'
 import { roleAtLeast, type AwarenessUser } from '@online-word/shared'
 import type { Editor } from '@tiptap/core'
@@ -32,6 +33,8 @@ export function useTiptapEditor(
       Placeholder.configure({
         placeholder: '开始输入，体验多人实时协同…',
       }),
+      // T1.9：字数统计（不设 limit，仅统计；storage.characters()/words() 由工具栏读取）
+      CharacterCount.configure({ limit: null }),
       Collaboration.configure({
         document: handles.ydoc,
         field: 'prosemirror',
