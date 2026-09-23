@@ -8,6 +8,8 @@ import { useTiptapEditor } from './hooks/useTiptapEditor'
 interface Props {
   docId: string
   user: AwarenessUser
+  /** GET /collab/token 换取的 WS token；空串时不建连接 */
+  token: string
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -16,8 +18,8 @@ const STATUS_LABEL: Record<string, string> = {
   disconnected: '已断开',
 }
 
-export default function RichTextEditor({ docId, user }: Props) {
-  const { handles, status, synced } = useCollabDoc(docId, user)
+export default function RichTextEditor({ docId, user, token }: Props) {
+  const { handles, status, synced } = useCollabDoc(docId, user, token)
 
   if (!handles) {
     return (

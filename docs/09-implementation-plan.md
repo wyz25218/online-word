@@ -102,7 +102,7 @@
 
 - [x] **T1.0 基础设施（1d）✅ 2026-09-23**：`docker-compose.yml`（postgres15、redis7、minio）；server/collab 的 `.env.example`；Prisma 初始化（**偏差见进度日志：本机无 Docker，改原生 Windows 服务；Prisma 锁 7.10.0**）
 - [x] **T1.1 认证（1.5d）✅ 2026-09-23**：NestJS 骨架；`POST /auth/login`（桩用户表）；JWT access/refresh 签发；`GET /collab/token?docId=`（绑定 docId、5min、jti）
-- [ ] **T1.2 文档 CRUD + 列表页（2d）**：docs 表与接口（06 文档）；web 引入 react-router、react-query；列表页/编辑页路由；新建/重命名/软删除；编辑页先验权限再挂编辑器（无权限态，不建 WS）
+- [x] **T1.2 文档 CRUD + 列表页（2d）✅ 2026-09-23**：docs 表与接口（06 文档）；web 引入 react-router、react-query；列表页/编辑页路由；新建/重命名/软删除；编辑页先验权限再挂编辑器（无权限态，不建 WS）
 - [ ] **T1.3 二进制持久化（2.5d）**：建表（03 文档 DDL）；collab 独立最小 DB client（仅两表权限的账号）；`docStore.loadState`（快照+增量回放）；`appendUpdate`（Redis 锁 + 水位行 `FOR UPDATE` + UNIQUE 幂等）；新建文档事务写空快照基线
 - [ ] **T1.4 快照压缩（1.5d）**：阈值触发（M0 阈值 100 条/2MB）；锁+事务内 encode → upsert snapshot → 删旧增量；`onDestroy` 强制压缩；失败置房间只读
 - [ ] **T1.5 真实鉴权（1.5d）**：collab `onAuthenticate` 接 server `/internal/docs/:id/membership`；Redis 缓存 60s；viewer 只读（网关丢弃写 + 前端 setEditable 双保险）；WS token 校验
@@ -224,3 +224,10 @@
   - 实现：auth 模块（login/refresh/collab-token，Bearer Guard + `@CurrentUser`）；三类 JWT（access/refresh/collab）以 `use` 声明防跨用、独立密钥隔离（新增 `JWT_COLLAB_SECRET`，collab 网关 T1.5 持同钥验签）；校验用 zod 自定义管道（不引入 class-validator/class-transformer：CJS 且重依赖元数据，与 Nest12 ESM 不搭）。
   - 验证：`pnpm -r typecheck` exit 0；正例（login 200/refresh 轮换/collab-token payload 含 docId+jti、exp-iat=300s）+ 负例 6 组（错密码 401、缺字段 400、无 Bearer 401、access 冒用 refresh 401、伪造 token 401、缺 docId 400）全部符合预期。
   - 备注：jti 一次性防重放的网关侧去重归 T1.5；refresh 撤销名单归 M2 安全加固；users 表落库后替换桩用户并引入密码哈希。
+- 2026-09-23 **T1.2 完成**。
+  - 数据库：Prisma schema 新增 `Doc`/`DocMember`（docs/03 §2 DDL 最小集）；迁移 `20260923080916_init_docs` 手工补齐 Prisma 无法表达的部分——`doc_members.role` CHECK 约束 + `idx_docs_owner` 部分索引（WHERE deleted_at IS NULL）。**坑：`prisma migrate dev` 在 Prisma 7 下不会自动重新 generate client**，需显式 `prisma generate`。
+  - server：`permissions` 模块（`PermissionsService.getMemberRole` + `DocRoleGuard` + `requireRole(minRole)` 复合装饰器：非成员 404 不泄露存在性、角色不足 403）；`docs` 模块（GET /docs 分页/关键字 contains insensitive/updatedAt 倒序、POST /docs 事务写 docs+owner 成员、GET/PATCH/DELETE /docs/:id 软删除 owner）。BigInt currentVersion 经 JSON 必须转 string（JSON.stringify(BigInt) 会抛 TypeError）。
+  - **关键坑：NestJS Guard 的模块上下文**——`@UseGuards(JwtAuthGuard)` 在 DocsController 上时，Guard 由 **DocsModule** 实例化，其依赖（AuthService/UsersService）必须在 DocsModule 可见：AuthModule 需 `exports: [AuthService, UsersModule]`（imports 不具备传递性，须显式 re-export UsersModule）。
+  - web：react-router-dom 7.18.4 + @tanstack/react-query 5.103.2（已回填 catalog）；登录页（localStorage 存 token+user）；api 客户端（401 → refreshToken 无感续签一次重放，失败清会话回 /login）；列表页（新建/重命名/软删除/关键字过滤，按角色控制按钮可用性）；编辑页 `/docs/:id` 先 GET /docs/:id 验权 + 换 collab token 再挂编辑器（无权限态不建 WS）；Vite 增加 `/api → :3000` HTTP 代理；useCollabDoc 改收真实 token（空串不建连接）。
+  - 验证：`pnpm -r typecheck` exit 0；API 正例 5 组（create/list/get/rename/keyword CJK+insensitive）+ 负例 4 组（无 token 401、非成员 GET/PATCH 404、空标题 400、软删后再查 404）全过；浏览器 9 步端到端（重定向登录→登录→新建→进编辑器协同→双标签同步→返回列表→软删除→退出）全 PASS，M0 协同链路无回归。
+  - 待办（T1.3）：POST /docs 同事务补空快照基线；WS token 5min 过期后的重连续签策略归 T1.6。

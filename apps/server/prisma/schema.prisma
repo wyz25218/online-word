@@ -13,3 +13,35 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+// T1.2 最小集：docs + doc_members（docs/03 §2 DDL）。
+// 协同二进制表（doc_snapshots/doc_updates/doc_sync_cursors）归 T1.3 的
+// collab 原生 SQL 迁移，绝不进入本 schema（ow_app 无对应表权限）。
+model Doc {
+  id             String    @id @default(uuid()) @db.Uuid
+  title          String    @default("未命名文档")
+  ownerId        String    @map("owner_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6) // 软删除
+  currentVersion BigInt    @default(0) @map("current_version") // 最新快照点版本（collab 经内部接口回写）
+  lastActiveAt   DateTime  @default(now()) @map("last_active_at") @db.Timestamptz(6)
+
+  members DocMember[]
+
+  @@index([ownerId], map: "idx_docs_owner")
+  @@map("docs")
+}
+
+model DocMember {
+  docId     String   @map("doc_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      String // CHECK 约束在迁移 SQL 中（owner/editor/commenter/viewer）
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  doc Doc @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  @@id([docId, userId])
+  @@index([userId], map: "idx_doc_members_user")
+  @@map("doc_members")
+}

@@ -17,22 +17,25 @@ export interface CollabState {
   synced: boolean
 }
 
-/** M0 固定 token（collab 桩鉴权：非空即放行）；M1 换登录态 token */
-const STUB_TOKEN = 'm0-token'
-
 /**
  * 创建并管理一篇文档的协同连接生命周期：
  * Y.Doc(gc:true) → IndexeddbPersistence（本地离线/秒开）→ HocuspocusProvider
  *
+ * token 由编辑页通过 GET /collab/token 换取（绑定 docId、5min），传入空串则不建连接。
  * 卸载时对称销毁 provider 与 ydoc，避免连接泄漏。
- * user 需由调用方保持引用稳定（M0 为常量；M1 用 useMemo 包裹登录态）。
+ * user 需由调用方保持引用稳定（编辑页用 useMemo 包裹登录态）。
  */
-export function useCollabDoc(docId: string, user: AwarenessUser): CollabState {
+export function useCollabDoc(docId: string, user: AwarenessUser, token: string): CollabState {
   const [handles, setHandles] = useState<CollabHandles | null>(null)
   const [status, setStatus] = useState<CollabStatus>('connecting')
   const [synced, setSynced] = useState(false)
 
   useEffect(() => {
+    if (token === '') {
+      // 无 token（无权限/未取到凭证）：不建立任何 WS 连接
+      setStatus('disconnected')
+      return
+    }
     setStatus('connecting')
     setSynced(false)
 
@@ -44,13 +47,12 @@ export function useCollabDoc(docId: string, user: AwarenessUser): CollabState {
       url: 'ws://localhost:8080', // M0 直连 collab 网关（Vite 代理对二进制 WS 双向转发不稳）
       name: docId,
       document: ydoc,
-      token: STUB_TOKEN,
+      token,
       onStatus: ({ status }: { status: string }) => {
         setStatus(status === 'connected' ? 'connected' : 'disconnected')
       },
       onSynced: () => setSynced(true),
       onAuthenticationFailed: () => {
-        // M1：跳转登录 / 申请权限
         console.warn('[collab] authentication failed')
       },
     })
@@ -69,7 +71,7 @@ export function useCollabDoc(docId: string, user: AwarenessUser): CollabState {
       provider.destroy()
       ydoc.destroy()
     }
-  }, [docId, user])
+  }, [docId, user, token])
 
   return { handles, status, synced }
 }

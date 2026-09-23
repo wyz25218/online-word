@@ -12,6 +12,7 @@
   "dependencies": {
     "@hocuspocus/provider": "catalog:",
     "@online-word/shared": "workspace:*",
+    "@tanstack/react-query": "catalog:",
     "@tiptap/core": "catalog:",
     "@tiptap/extension-collaboration": "catalog:",
     "@tiptap/extension-collaboration-cursor": "catalog:",
@@ -21,6 +22,7 @@
     "@tiptap/starter-kit": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "react-router-dom": "catalog:",
     "y-indexeddb": "catalog:",
     "y-protocols": "catalog:",
     "yjs": "catalog:"
