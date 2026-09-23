@@ -13,10 +13,13 @@
   "dependencies": {
     "@hocuspocus/server": "catalog:",
     "@online-word/shared": "workspace:*",
+    "ioredis": "catalog:",
+    "pg": "catalog:",
     "yjs": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@types/pg": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:"
   }

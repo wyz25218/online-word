@@ -103,7 +103,7 @@
 - [x] **T1.0 基础设施（1d）✅ 2026-09-23**：`docker-compose.yml`（postgres15、redis7、minio）；server/collab 的 `.env.example`；Prisma 初始化（**偏差见进度日志：本机无 Docker，改原生 Windows 服务；Prisma 锁 7.10.0**）
 - [x] **T1.1 认证（1.5d）✅ 2026-09-23**：NestJS 骨架；`POST /auth/login`（桩用户表）；JWT access/refresh 签发；`GET /collab/token?docId=`（绑定 docId、5min、jti）
 - [x] **T1.2 文档 CRUD + 列表页（2d）✅ 2026-09-23**：docs 表与接口（06 文档）；web 引入 react-router、react-query；列表页/编辑页路由；新建/重命名/软删除；编辑页先验权限再挂编辑器（无权限态，不建 WS）
-- [ ] **T1.3 二进制持久化（2.5d）**：建表（03 文档 DDL）；collab 独立最小 DB client（仅两表权限的账号）；`docStore.loadState`（快照+增量回放）；`appendUpdate`（Redis 锁 + 水位行 `FOR UPDATE` + UNIQUE 幂等）；新建文档事务写空快照基线
+- [x] **T1.3 二进制持久化（2.5d）✅ 2026-09-23**：建表（03 文档 DDL）；collab 独立最小 DB client（仅两表权限的账号）；`docStore.loadState`（快照+增量回放）；`appendUpdate`（Redis 锁 + 水位行 `FOR UPDATE` + UNIQUE 幂等）；新建文档事务写空快照基线
 - [ ] **T1.4 快照压缩（1.5d）**：阈值触发（M0 阈值 100 条/2MB）；锁+事务内 encode → upsert snapshot → 删旧增量；`onDestroy` 强制压缩；失败置房间只读
 - [ ] **T1.5 真实鉴权（1.5d）**：collab `onAuthenticate` 接 server `/internal/docs/:id/membership`；Redis 缓存 60s；viewer 只读（网关丢弃写 + 前端 setEditable 双保险）；WS token 校验
 - [ ] **T1.6 离线与连接状态（1d）**：确认 y-indexeddb 全链路；zustand 接入；连接状态条四态（connected/syncing/offline/denied）；认证失败停止重试
@@ -231,3 +231,9 @@
   - web：react-router-dom 7.18.4 + @tanstack/react-query 5.103.2（已回填 catalog）；登录页（localStorage 存 token+user）；api 客户端（401 → refreshToken 无感续签一次重放，失败清会话回 /login）；列表页（新建/重命名/软删除/关键字过滤，按角色控制按钮可用性）；编辑页 `/docs/:id` 先 GET /docs/:id 验权 + 换 collab token 再挂编辑器（无权限态不建 WS）；Vite 增加 `/api → :3000` HTTP 代理；useCollabDoc 改收真实 token（空串不建连接）。
   - 验证：`pnpm -r typecheck` exit 0；API 正例 5 组（create/list/get/rename/keyword CJK+insensitive）+ 负例 4 组（无 token 401、非成员 GET/PATCH 404、空标题 400、软删后再查 404）全过；浏览器 9 步端到端（重定向登录→登录→新建→进编辑器协同→双标签同步→返回列表→软删除→退出）全 PASS，M0 协同链路无回归。
   - 待办（T1.3）：POST /docs 同事务补空快照基线；WS token 5min 过期后的重连续签策略归 T1.6。
+- 2026-09-23 **T1.3 完成**。
+  - 数据库：手工 SQL 迁移 `apps/collab/migrations/V1__binary_tables.sql`（doc_snapshots / doc_updates / doc_sync_cursors，docs/03 §2 原生 DDL；**不用 Prisma 管理二进制表**，避免业务 client 与 collab 权限耦合）。权限收敛：ow_collab 三表 DML + 序列 USAGE；ow_app 仅 doc_snapshots INSERT（建空快照基线用）——已实测 ow_app SELECT doc_updates 被拒。
+  - collab：`db.client.ts`（pg Pool + `isDocUuid` 门卫：非 UUID 房间如 M0 测试房间不落库；`loadDocBaseline` 快照+增量读取；`appendUpdate` BEGIN→水位行 `SELECT ... FOR UPDATE`（无则 INSERT ON CONFLICT DO NOTHING 后从 1 起）→INSERT→水位+1→COMMIT）；`redis.client.ts`（ioredis + `withLock`：SET NX PX 租期 10s、自旋 25ms 最长等 2s、Lua 比对 token 释放）；`persistence.ts`（loadDocState 快照+增量回放 / persistChange 锁内追加重试 3 次）；main.ts onChange→persistChange、onLoadDocument→loadDocState；`.env`（gitignored）+ `env.ts` loadEnvFile。
+  - server：POST /docs 事务内 `$executeRaw` 写空快照基线（version=0, state=2 字节空 update）。**坑：Prisma 7 SQL 编译器 bytea 字面量 `'\x0000'` 报协议错"insufficient data left in message"**，必须 `decode('0000','hex')`；**带 arbiter 的 `ON CONFLICT (col)` 需要对索引列的 SELECT 权限**（PG 冲突检查要读索引），INSERT-only 账号须用无 arbiter 的 `ON CONFLICT DO NOTHING`。
+  - 验证：`pnpm -r typecheck` exit 0；新建文档基线行确认（version=0/size_bytes=2/state_hex=0000）；浏览器输入中文+英文混合内容后 doc_updates 落库 1 条（78 字节）、水位 next_version=2；崩溃恢复端到端演练——杀 collab 进程→重启（服务端日志 `loaded snapshot=yes@v0 updates=1`）→清浏览器 IndexedDB→刷新页面→正文完整恢复，PASS。
+  - 遗留：房间只读降级归 T1.4；压缩归 T1.4；token 重连续签归 T1.6。

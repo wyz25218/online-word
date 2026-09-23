@@ -35,13 +35,23 @@ export class DocsService {
   }
 
   /**
-   * 新建文档：事务内写 docs + doc_members(owner)。
-   * TODO(T1.3)：同一事务初始化空快照基线（doc_snapshots），供网关读取。
+   * 新建文档：事务内写 docs + doc_members(owner) + 空快照基线（docs/03 §3，
+   * 保证外键存在、网关 onLoadDocument 永远能读到基线）。
+   * 二进制表不走 Prisma 模型（账号权限隔离），用原生 SQL；ow_app 仅 doc_snapshots INSERT。
+   * 空文档的 Yjs update 恒为两字节 0x00 0x00（= Y.encodeStateAsUpdate(new Y.Doc())）。
+   * 注意 1：bytea 字面量 '\x0000' 会被 Prisma 7 的 SQL 编译器错误解析（协议报错
+   * "insufficient data left in message"），必须用 decode('0000','hex') 表达。
+   * 注意 2：带索引推断的 ON CONFLICT (doc_id) 要求 SELECT 权限（PG 冲突检查需读索引列），
+   * ow_app 仅有 INSERT，故用无 arbiter 的 ON CONFLICT DO NOTHING（防御性场景语义等价）。
    */
   async create(userId: string, input: CreateDocInput): Promise<DocDetail> {
     const doc = await prisma.$transaction(async (tx) => {
       const created = await tx.doc.create({ data: { title: input.title, ownerId: userId } })
       await tx.docMember.create({ data: { docId: created.id, userId, role: 'owner' } })
+      await tx.$executeRaw`
+        INSERT INTO doc_snapshots (doc_id, version, state, size_bytes)
+        VALUES (${created.id}::uuid, 0, decode('0000', 'hex'), 2)
+        ON CONFLICT DO NOTHING`
       return created
     })
     return this.toDetail(doc, 'owner')

@@ -41,6 +41,11 @@ catalog:
   react-router-dom: 7.18.4
   '@tanstack/react-query': 5.103.2
 
+  # --- 网关持久化（T1.3）：最小 DB client（pg）+ Redis（锁/PubSub） ---
+  pg: 8.23.0
+  '@types/pg': 8.23.1
+  ioredis: 6.0.0
+
   # --- Yjs / CRDT ---
   yjs: 13.6.32
   y-protocols: 1.0.7
