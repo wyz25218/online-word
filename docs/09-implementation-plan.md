@@ -106,7 +106,7 @@
 - [x] **T1.3 二进制持久化（2.5d）✅ 2026-09-23**：建表（03 文档 DDL）；collab 独立最小 DB client（仅两表权限的账号）；`docStore.loadState`（快照+增量回放）；`appendUpdate`（Redis 锁 + 水位行 `FOR UPDATE` + UNIQUE 幂等）；新建文档事务写空快照基线
 - [x] **T1.4 快照压缩（1.5d）✅ 2026-09-23**：阈值触发（M0 阈值 100 条/2MB）；锁+事务内 encode → upsert snapshot → 删旧增量；`onDestroy` 强制压缩；失败置房间只读
 - [x] **T1.5 真实鉴权（1.5d）✅ 2026-09-23**：collab `onAuthenticate` 接 server `/internal/docs/:id/membership`；Redis 缓存 60s；viewer 只读（网关丢弃写 + 前端 setEditable 双保险）；WS token 校验
-- [ ] **T1.6 离线与连接状态（1d）**：确认 y-indexeddb 全链路；zustand 接入；连接状态条四态（connected/syncing/offline/denied）；认证失败停止重试
+- [x] **T1.6 离线与连接状态（1d）✅ 2026-09-23**：确认 y-indexeddb 全链路；zustand 接入；连接状态条四态（connected/syncing/offline/denied）；认证失败停止重试
 - [ ] **T1.7 Presence（1d）**：awareness 字段按 shared 类型固化；头像组按 userId 聚合；多标签去重；30s 超时清理；稳定取色
 - [ ] **T1.8 踢人/降权（1d）**：server 权限变更 → 删鉴权缓存 + Redis PUBLISH；collab 房间订阅 → closeConnection；前端只读提示
 - [ ] **T1.9 基础工具栏 + 字数（1d）**：粗斜删/H1-H3/列表/引用；undo/redo 接 y undoManager；CharacterCount；用 useEditorState 选择器防重渲染
@@ -253,3 +253,13 @@
   - 验证（node 脚本手工编码 Auth 消息四阶段 + 浏览器端到端）：①非成员 bob/carol 连 WS → permission-denied；②DB 加成员后 owner/editor → scope="read-write"、viewer → scope="readonly"（连接级只读生效）；③缓存命中——60s 内重连 3 次，server `[internal]` 查库日志数不变，Redis key TTL=60s；④token 绑定校验——DOC_A 的 token 连其他房间、乱串 token 均被拒；⑤浏览器 carol（viewer）端到端：列表页文档带"只读"标签、编辑页「只读模式」徽标、`.ProseMirror` isContentEditable=false、键入被阻止，在线列表正常。
   - 验证插曲：浏览器旧标签页持有的 M0/过期 token 重连被拒属预期（T1.6 续签前的已知行为），刷新页面即恢复。
   - 遗留：WS token 5min 过期的重连续签归 T1.6；踢人/降权的事件推送（删缓存 + PUBLISH）归 T1.8。
+- 2026-09-23 **T1.6 完成**。
+  - **决策：jti 一次性去重正式放弃**（T1.5 暂缓项的结论）——读 @hocuspocus/provider 4.7 源码确认：token 支持函数形式且**每次 WS open（含自动重连）都会重新调用** `getToken()`（onOpen → sendToken → getToken）；强制 jti 一次性会使同 token 的自动重连被拒，把"网络闪断无缝重连"劣化为"换 token 重建"，可用性损失大于安全收益（token 5min TTL + 绑定 docId，重放收益极低）。
+  - token 续签（利用上述机制，零销毁零重建）：`useCollabDoc(docId, user, getToken)` 签名——编辑页注入带新鲜度检查的回调（tokenRef 缓存 `{token, expiresAt=获取时刻+(expiresIn-30)s}`，命中直接用，过期重新 GET /collab/token；403 = 无权限 → getToken 抛错 → provider authenticationFailed → denied）。useCallback([id]) 保证引用稳定，防止 effect 重跑重建连接。
+  - **认证失败停止重试**：provider 的 `permissionDeniedHandler` 只发事件**不停连**（shouldConnect 仍 true，onClose 后无限重连循环）——onAuthenticationFailed 里手动 `provider.disconnect()`（shouldConnect=false）；disconnect 再触发的 disconnected 状态事件用局部 `denied` 标志守卫，防止覆盖 denied 态。
+  - zustand 5.0.15 接入（catalog）：`collab.store.ts` 每篇文档连接 `createStore` 一个实例（随 provider 生命周期创建/丢弃，避免全局单例的文档切换残留与重置逻辑）；StatusBar 用 `useStore(store, selector)` 订阅；在线用户仍在组件本地 state（T1.7 迁入）。
+  - 状态条四态：`syncing`（WS 连/初始同步中）→ `connected`（已同步）→ `offline`（断线重连中）→ `denied`（认证被拒 + 红字「重新连接」按钮，点击 `provider.connect()` → getToken 自动续签 → 重新鉴权）。样式：offline 灰点、denied 红点红字。
+  - 踩坑：StatusBar 一度用 `handles.ydoc.guid` 当文档 ID——`new Y.Doc()` 的 guid 是随机值，与房间名（provider name）无关，必须用路由 docId 传递。
+  - 验证（浏览器 agent + 服务端日志 + DB 回放脚本三重证据，全 PASS）：①基线 alice（editor）打开测试文档状态条「已连接」；②**offline 全链路**——taskkill 杀 collab → 状态条 8s 内变「离线（重连中）」→ 离线键入「离线编辑验证A1」（编辑器接受、本地渲染）→ 重启 collab → **自动重连**回「已连接」→ 刷新正文完整 → node 脚本回放 DB（snapshot v9，增量已被房间卸载压缩合并）确认含「离线编辑验证A1」（离线内容经重连同步落库，y-indexeddb 链路闭环）；③**认证失败停止重试**——JWT_COLLAB_SECRET 换错值重启 → 浏览器 denied 态 + 「重新连接」按钮 + 服务端 15s 内 permission denied 仅 1 次（无循环）；④**续签恢复**——换回正确 secret 重启 → 点击「重新连接」→ getToken 缓存已过期自动换新 token → `[auth] ok` → 继续编辑正常。
+  - 环境坑：多轮验证后台 job 泄漏堆积 7 个 tsx watch 残留进程（EADDRINUSE 的真凶）——按 `Get-CimInstance Win32_Process -Filter "Name='node.exe'"` 过滤 tsx 命令行全量清理后重起单实例；taskkill /T 杀 server 子进程后 tsx watch 自动 Rerunning 可能撞端口窗口期崩溃留孤儿进程，进程治理要按父进程树清。DB 回放脚本坑：Y.XmlFragment 须 `toArray()` 迭代（不可直接 for-of）。
+  - 遗留：jti 去重不做；offline 期间 provider 消息队列 flush 依赖 y sync 协议兜底（重连后按状态向量推 diff），无需额外处理。

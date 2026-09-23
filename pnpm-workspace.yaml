@@ -41,6 +41,9 @@ catalog:
   react-router-dom: 7.18.4
   '@tanstack/react-query': 5.103.2
 
+  # --- 客户端状态（T1.6）：编辑器连接状态等跨组件 UI 状态 ---
+  zustand: 5.0.15
+
   # --- 网关持久化（T1.3）：最小 DB client（pg）+ Redis（锁/PubSub） ---
   pg: 8.23.0
   '@types/pg': 8.23.1

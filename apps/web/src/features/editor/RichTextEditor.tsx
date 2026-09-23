@@ -1,25 +1,27 @@
 import { useEffect, useState } from 'react'
 import { EditorContent } from '@tiptap/react'
+import { useStore } from 'zustand'
 import { roleAtLeast, type AwarenessUser } from '@online-word/shared'
 import type { HocuspocusProvider } from '@hocuspocus/provider'
-import { useCollabDoc } from './hooks/useCollabDoc'
+import { useCollabDoc, type CollabHandles } from './hooks/useCollabDoc'
 import { useTiptapEditor } from './hooks/useTiptapEditor'
 
 interface Props {
   docId: string
   user: AwarenessUser
-  /** GET /collab/token 换取的 WS token；空串时不建连接 */
-  token: string
+  /** 获取 WS token 的回调（带新鲜度检查，过期自动续签），由编辑页注入 */
+  getToken: () => Promise<string>
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  connecting: '连接中…',
+  syncing: '同步中…',
   connected: '已连接',
-  disconnected: '已断开',
+  offline: '离线（重连中）',
+  denied: '连接被拒绝',
 }
 
-export default function RichTextEditor({ docId, user, token }: Props) {
-  const { handles, status, synced } = useCollabDoc(docId, user, token)
+export default function RichTextEditor({ docId, user, getToken }: Props) {
+  const handles = useCollabDoc(docId, user, getToken)
 
   if (!handles) {
     return (
@@ -34,28 +36,48 @@ export default function RichTextEditor({ docId, user, token }: Props) {
 
   return (
     <div className="editor-shell">
-      <div className={`editor-statusbar status-${status}`}>
-        <span>
-          <span className="status-dot" />
-          {STATUS_LABEL[status] ?? status}
-          {synced ? ' · 已同步' : ' · 同步中'}
-        </span>
-        {!roleAtLeast(user.role, 'editor') && <span className="badge-readonly">只读模式</span>}
-        <OnlineUsers provider={handles.provider} me={user} />
-        <span style={{ marginLeft: 'auto' }}>文档 ID：{docId}</span>
-      </div>
+      <StatusBar handles={handles} user={user} docId={docId} />
       <EditorView handles={handles} user={user} />
     </div>
   )
 }
 
+/** 连接状态条：四态（connected/syncing/offline/denied），由 provider 事件写入 store */
+function StatusBar({ handles, user, docId }: { handles: CollabHandles; user: AwarenessUser; docId: string }) {
+  const status = useStore(handles.store, (s) => s.status)
+
+  return (
+    <div className={`editor-statusbar status-${status}`}>
+      <span>
+        <span className="status-dot" />
+        {STATUS_LABEL[status] ?? status}
+      </span>
+      {!roleAtLeast(user.role, 'editor') && <span className="badge-readonly">只读模式</span>}
+      {status === 'denied' && (
+        <button
+          type="button"
+          className="reconnect-btn"
+          onClick={() => {
+            // connect() 会重新触发 WS open → getToken 续签 → 重新鉴权
+            handles.provider.connect()
+          }}
+        >
+          重新连接
+        </button>
+      )}
+      <OnlineUsers provider={handles.provider} me={user} />
+      <span style={{ marginLeft: 'auto' }}>文档 ID：{docId}</span>
+    </div>
+  )
+}
+
 /** 内层组件：handles 已保证非空，可安全调用 useTiptapEditor */
-function EditorView({ handles, user }: { handles: NonNullable<ReturnType<typeof useCollabDoc>['handles']>; user: AwarenessUser }) {
+function EditorView({ handles, user }: { handles: CollabHandles; user: AwarenessUser }) {
   const editor = useTiptapEditor(handles, user)
   return <EditorContent editor={editor} className="ProseMirror" />
 }
 
-/** 基于 awareness 展示在线用户（M0 替代精确远程光标） */
+/** 基于 awareness 展示在线用户（M0 替代精确远程光标；T1.7 迁入 zustand 并做聚合去重） */
 function OnlineUsers({ provider, me }: { provider: HocuspocusProvider; me: AwarenessUser }) {
   const [users, setUsers] = useState<AwarenessUser[]>([me])
 

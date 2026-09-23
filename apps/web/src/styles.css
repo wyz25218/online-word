@@ -77,7 +77,20 @@ body {
 
 .status-connected .status-dot { background: #34c759; }
 .status-syncing .status-dot { background: #ff9f0a; }
-.status-disconnected .status-dot { background: #ff3b30; }
+.status-offline .status-dot { background: #98989d; }
+.status-denied .status-dot { background: #ff3b30; }
+.status-denied { color: #d70015; }
+
+.reconnect-btn {
+  padding: 1px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #fff;
+  background: #d70015;
+  border: 1px solid #b00011;
+}
+.reconnect-btn:hover { background: #b00011; }
 
 .badge-readonly {
   padding: 2px 8px;

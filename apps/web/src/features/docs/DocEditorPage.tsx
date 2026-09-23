@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getCollabToken, getDoc, type DocDetail } from '../../api/docs'
@@ -9,7 +9,8 @@ import { UserBadge } from './DocsListPage'
 
 /**
  * 编辑页：先查文档元数据与我的角色（无权限态绝不建 WS 连接），
- * 再用 docId 换 WS token，最后才挂载协同编辑器。
+ * 再挂载协同编辑器。WS token 由 getToken 回调按需获取：
+ * 初始连接与断线重连共用该回调，token 过期时自动重新换取（T1.6 续签）。
  */
 export default function DocEditorPage() {
   const { id } = useParams<{ id: string }>()
@@ -22,14 +23,31 @@ export default function DocEditorPage() {
     retry: (_failureCount, error) => !(error instanceof ApiError) || error.status >= 500,
   })
 
+  // token 缓存：5min 过期，预留 30s 网络缓冲。命中新鲜缓存直接复用（避免每次重连都请求），
+  // 过期则重新 GET /collab/token（403 = 无权限 → getToken 抛错 → provider 认证失败 → denied）
+  const tokenRef = useRef<{ token: string; expiresAt: number } | null>(null)
+
   const tokenQuery = useQuery({
     queryKey: ['collab-token', id],
     queryFn: () => getCollabToken(id!),
     enabled: docQuery.isSuccess,
-    // token 5min 过期：本次会话只取一次；断线重连的续签策略在 T1.6 处理
     staleTime: 4 * 60 * 1000,
     retry: false,
   })
+
+  useEffect(() => {
+    const data = tokenQuery.data
+    if (data) tokenRef.current = { token: data.token, expiresAt: Date.now() + (data.expiresIn - 30) * 1000 }
+  }, [tokenQuery.data])
+
+  const getToken = useCallback(async (): Promise<string> => {
+    if (id === undefined) throw new Error('缺少文档 ID')
+    const cached = tokenRef.current
+    if (cached && Date.now() < cached.expiresAt) return cached.token
+    const data = await getCollabToken(id)
+    tokenRef.current = { token: data.token, expiresAt: Date.now() + (data.expiresIn - 30) * 1000 }
+    return data.token
+  }, [id])
 
   const awarenessUser = useMemo<AwarenessUser | null>(() => {
     const doc = docQuery.data
@@ -64,9 +82,7 @@ export default function DocEditorPage() {
       </header>
       {tokenQuery.isPending && <LoadState text="正在建立协同连接…" />}
       {tokenQuery.isError && <DeniedState title="获取协同凭证失败" hint={(tokenQuery.error as Error).message} />}
-      {tokenQuery.isSuccess && awarenessUser !== null && (
-        <RichTextEditor docId={id} user={awarenessUser} token={tokenQuery.data.token} />
-      )}
+      {tokenQuery.isSuccess && awarenessUser !== null && <RichTextEditor docId={id} user={awarenessUser} getToken={getToken} />}
     </div>
   )
 }

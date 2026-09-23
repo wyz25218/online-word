@@ -25,7 +25,8 @@
     "react-router-dom": "catalog:",
     "y-indexeddb": "catalog:",
     "y-protocols": "catalog:",
-    "yjs": "catalog:"
+    "yjs": "catalog:",
+    "zustand": "catalog:"
   },
   "devDependencies": {
     "@types/react": "catalog:",
