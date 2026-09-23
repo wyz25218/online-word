@@ -16,6 +16,12 @@ export interface CollabStoreState {
   synced: boolean
   /** 在线用户（awareness 聚合，按 userId 去重；同一账号多标签只显示一个头像） */
   onlineUsers: AwarenessUser[]
+  /**
+   * 网关认证下发的连接 scope（T1.8）：
+   * 'read-write' 可写；'readonly' 连接级只读（降权/房间降级）；null 尚未认证。
+   * 编辑器 editable = 本地角色可写 && scope 不是 readonly。
+   */
+  authorizedScope: 'read-write' | 'readonly' | null
 }
 
 export type CollabStore = ReturnType<typeof createCollabStore>
@@ -29,5 +35,6 @@ export function createCollabStore(me: AwarenessUser) {
     status: 'syncing',
     synced: false,
     onlineUsers: [me],
+    authorizedScope: null,
   }))
 }

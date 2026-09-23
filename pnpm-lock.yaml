@@ -176,6 +176,9 @@ importers:
       '@prisma/client':
         specifier: 'catalog:'
         version: 7.10.0(prisma@7.10.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(magicast@0.5.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@7.0.2))(typescript@7.0.2)
+      ioredis:
+        specifier: 'catalog:'
+        version: 6.0.0
       jose:
         specifier: 'catalog:'
         version: 6.2.12

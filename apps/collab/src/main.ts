@@ -1,6 +1,7 @@
 import './env.js'
 import { Server } from '@hocuspocus/server'
 import type { AwarenessUser, CollabContext } from '@online-word/shared'
+import { startControlSubscriber } from './control.subscriber.js'
 import { verifyToken } from './auth.service.js'
 import { compactOnUnload, loadDocState, persistChange } from './persistence.js'
 import { isRoomReadOnly } from './room-state.js'
@@ -105,10 +106,16 @@ const server = new Server<CollabContext>({
 // 启动
 await server.listen()
 
+// T1.8：订阅 server 的权限变更控制事件（踢人/降权 → 断开目标连接强制重新鉴权）
+const controlSub = startControlSubscriber(process.env.REDIS_URL ?? 'redis://localhost:6379', {
+  getConnections: (docId) => server.hocuspocus.documents.get(docId)?.connections.keys(),
+})
+
 // 优雅退出：释放 Redis 连接（进程由 tsx watch / nodeman 管理生命周期）
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     console.log(`[collab] ${signal} received, shutting down`)
+    controlSub.disconnect()
     void closeRedis().then(() => process.exit(0))
   })
 }

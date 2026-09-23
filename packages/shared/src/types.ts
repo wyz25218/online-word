@@ -65,6 +65,22 @@ export interface AuthResult {
 /** 由服务端经 awareness/control 通道下发给客户端的指令 */
 export type ServerSignal = { type: 'force-disconnect'; reason: string }
 
+/**
+ * server → collab 的权限变更控制事件（Redis PUBLISH，docs/06 §2 权限与分享）。
+ * collab 收到后断开目标用户在该文档的连接，迫使其重连并重新鉴权：
+ * 被移除 → membership 查库拒绝（前端 denied）；降权 → 以 readonly 连接重建（前端只读提示）。
+ */
+export interface CollabControlEvent {
+  docId: string
+  userId: string
+  action: 'membership-changed'
+}
+
+/** server → collab 控制频道名（collab 以 psubscribe collab:control:* 订阅全部房间） */
+export function collabControlChannel(docId: string): string {
+  return `collab:control:${docId}`
+}
+
 /** 角色权限检查：给定角色是否具备某最低权限 */
 export const ROLE_RANK: Record<DocRole, number> = {
   owner: 4,

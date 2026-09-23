@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { EditorContent } from '@tiptap/react'
 import { useStore } from 'zustand'
 import { roleAtLeast, type AwarenessUser } from '@online-word/shared'
@@ -44,6 +45,9 @@ export default function RichTextEditor({ docId, user, getToken }: Props) {
 /** 连接状态条：四态（connected/syncing/offline/denied），由 provider 事件写入 store */
 function StatusBar({ handles, user, docId }: { handles: CollabHandles; user: AwarenessUser; docId: string }) {
   const status = useStore(handles.store, (s) => s.status)
+  const authorizedScope = useStore(handles.store, (s) => s.authorizedScope)
+  // 被降权：本地角色以为可写但网关下发只读连接（T1.8 权限变更即时生效）
+  const downgraded = authorizedScope === 'readonly' && roleAtLeast(user.role, 'editor')
 
   return (
     <div className={`editor-statusbar status-${status}`}>
@@ -52,6 +56,7 @@ function StatusBar({ handles, user, docId }: { handles: CollabHandles; user: Awa
         {STATUS_LABEL[status] ?? status}
       </span>
       {!roleAtLeast(user.role, 'editor') && <span className="badge-readonly">只读模式</span>}
+      {downgraded && <span className="badge-readonly">权限已调整：只读</span>}
       {status === 'denied' && (
         <button
           type="button"
@@ -73,6 +78,14 @@ function StatusBar({ handles, user, docId }: { handles: CollabHandles; user: Awa
 /** 内层组件：handles 已保证非空，可安全调用 useTiptapEditor */
 function EditorView({ handles, user }: { handles: CollabHandles; user: AwarenessUser }) {
   const editor = useTiptapEditor(handles, user)
+  // T1.8：网关 scope 联动编辑态——降权（scope=readonly）立即置只读，恢复写权限后可继续编辑
+  const authorizedScope = useStore(handles.store, (s) => s.authorizedScope)
+
+  useEffect(() => {
+    if (editor === null) return
+    editor.setEditable(authorizedScope !== 'readonly' && roleAtLeast(user.role, 'editor'))
+  }, [editor, authorizedScope, user.role])
+
   return <EditorContent editor={editor} className="ProseMirror" />
 }
 

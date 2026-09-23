@@ -108,7 +108,7 @@
 - [x] **T1.5 真实鉴权（1.5d）✅ 2026-09-23**：collab `onAuthenticate` 接 server `/internal/docs/:id/membership`；Redis 缓存 60s；viewer 只读（网关丢弃写 + 前端 setEditable 双保险）；WS token 校验
 - [x] **T1.6 离线与连接状态（1d）✅ 2026-09-23**：确认 y-indexeddb 全链路；zustand 接入；连接状态条四态（connected/syncing/offline/denied）；认证失败停止重试
 - [x] **T1.7 Presence（1d）✅ 2026-09-23**：awareness 字段按 shared 类型固化；头像组按 userId 聚合；多标签去重；30s 超时清理；稳定取色
-- [ ] **T1.8 踢人/降权（1d）**：server 权限变更 → 删鉴权缓存 + Redis PUBLISH；collab 房间订阅 → closeConnection；前端只读提示
+- [x] **T1.8 踢人/降权（1d）✅ 2026-09-23**：server 权限变更 → 删鉴权缓存 + Redis PUBLISH；collab 房间订阅 → closeConnection；前端只读提示
 - [ ] **T1.9 基础工具栏 + 字数（1d）**：粗斜删/H1-H3/列表/引用；undo/redo 接 y undoManager；CharacterCount；用 useEditorState 选择器防重渲染
 - [ ] **T1.10 崩溃恢复演练（1d）**：kill -9 collab 后重启零丢失验证；onLoadDocument 回放性能观察；补 Vitest 单测（appendUpdate 幂等、压缩事务）
 - [ ] **M1 准出**：拔网线 10 分钟双写零丢字；杀进程零丢失；内部 10 人试用 1 周
@@ -270,3 +270,11 @@
   - **验证坑**：浏览器 agent 读取 `.user-dot` 颜色时把页头 UserBadge 的徽章（3 个 dot 中的 #1a73e8）误当 awareness chip 报告——实际 awareness chips 的 #4a90d9(alice)/#f8e71c(bob) 与 node 端 colorForUser 计算值逐一吻合；结论以代码 grep + node 精确计算为准。
   - 验证（浏览器 agent，全 PASS）：①alice 单人在线 1 人、色 #4a90d9；②bob 加入后两端均"在线 2 人"、色 #f8e71c；③alice 同账号开第三标签 → 在线人数仍 2（userId 聚合去重生效）；④关闭 bob 标签等 35s → alice 端自动回落"在线 1 人"（y-protocols 30s 超时清理生效）。
   - 遗留：cursor 字段已固化但未接 ProseMirror 位置（远程光标），归 M1 后续/T1.9 之后评估。
+- 2026-09-23 **T1.8 完成**。
+  - 控制事件契约（shared）：`CollabControlEvent {docId,userId,action:'membership-changed'}` + `collabControlChannel(docId) = 'collab:control:{docId}'`（psubscribe 通配订阅，新增事件类型免改订阅端）。
+  - server：`MembersController`（`docs/:id/members`，JwtAuthGuard + 全 owner 专属 requireRole）——GET 列表 / POST 加成员 / PATCH `:userId` 改角色 / DELETE `:userId` 踢出；zod DTO（成员角色枚举排除 owner——owner 不可授予/变更/移除，owner 视图置灰）。`PermissionsService` 注入 UsersService 解析姓名（**users 是桩表，无 prisma.user 可查**）；每处变更先 `DEL collab:membership:{docId}:{userId}` 再 `PUBLISH`，**PUBLISH 失败仅打日志不阻断写库**（Redis 故障时 60s 缓存 TTL 自然过期兜底）。
+  - collab：`control.subscriber.ts` 独立 ioredis 订阅连接（**订阅连接要求 `maxRetriesPerRequest: null`**，与数据连接配置不同）；pmessage → 解析事件 → `server.hocuspocus.documents.get(docId)?.connections.keys()` 遍历，`conn.context?.user?.userId === event.userId` 命中即 `conn.close({code:4003, reason:'membership-changed'})`；日志 `kicked=N`。main.ts 挂载 + 优雅停机 disconnect。
+  - web：collab store 增 `authorizedScope`（onAuthenticated 的 scope 写入）；StatusBar——`authorizedScope === 'readonly'` 且本地位足够（roleAtLeast editor）→「权限已调整：只读」徽标 + 编辑器 setEditable(false)（降权场景）；denied 态显示「连接被拒绝」+「重新连接」按钮（provider.connect() → getToken 续签重鉴权，T1.6 机制复用）。
+  - **踢人闭环链路**：server DELETE 成员 → DEL 缓存 + PUBLISH → collab close(4003) → provider 视为连接关闭**自动重连**（T1.6 的 getToken 续签在 open 时触发）→ onAuthenticate 实时查库（缓存已删）→ permission denied → 前端手动 disconnect 停止重试 → denied 态。降权场景同理重连后 scope=readonly，连接级只读生效。
+  - 踩坑：①MembersController 的 JwtAuthGuard 在 PermissionsModule 上下文实例化，需 imports AuthModule（Nest Guard 依赖解析坑，与 T1.2 同款）；②server 无全局 API 前缀（/api 只是 Vite 代理层），验证脚本 BASE 直接 `http://localhost:3000`。
+  - 验证（node 脚本四命令 + 浏览器双标签端到端，全 PASS）：①REST——alice 登录后 list 返回 3 成员、PATCH bob→viewer 200、DELETE bob 204；②降权——collab 日志 `[control] membership-changed ... kicked=1` → bob 自动重连 `[auth] role=viewer permission=read (readOnly)` → bob 界面「权限已调整：只读」徽标、输入被阻止；③踢出——DELETE 后 kicked=1 → bob 重连 permission denied，15s 窗口无重试循环 → 「连接被拒绝」+「重新连接」按钮；④验证后 restore 恢复 bob=editor，临时脚本已删。

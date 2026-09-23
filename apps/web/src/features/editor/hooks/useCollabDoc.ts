@@ -53,6 +53,10 @@ export function useCollabDoc(docId: string, user: AwarenessUser, getToken: () =>
         if (denied) return
         store.setState({ synced: true, status: 'connected' })
       },
+      // T1.8：认证结果 scope 写入 store（'readonly' = 被降权/房间降级，编辑器联动置只读）
+      onAuthenticated: ({ scope }: { scope: string }) => {
+        store.setState({ authorizedScope: scope === 'readonly' ? 'readonly' : 'read-write' })
+      },
       onAuthenticationFailed: () => {
         console.warn('[collab] authentication failed, stop retrying')
         denied = true
