@@ -1,0 +1,15 @@
+// Prisma schema：业务库（仅 apps/server 可写，账号 ow_app）
+// 协同二进制表（doc_snapshots/doc_updates/doc_sync_cursors）不走 Prisma，
+// 由 apps/collab 的最小 DB client + 原生 SQL 迁移管理（见 docs/03-data-model.md 第 2 节）。
+//
+// Prisma 7 变更：
+// - datasource 不再支持 url：迁移连接串在 prisma.config.ts，运行时用 @prisma/adapter-pg 注入 PrismaClient
+// - generator 必须为 prisma-client 且显式 output；CLI 不再自动加载 .env
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}

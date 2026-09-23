@@ -8,6 +8,9 @@ build/
 out/
 *.tsbuildinfo
 
+# Prisma 生成物（prisma generate 产物，postinstall 重建）
+apps/server/src/generated/
+
 # Test / coverage
 coverage/
 .playwright/
@@ -33,3 +36,6 @@ Thumbs.db
 # Runtime data
 data/
 *.sqlite
+
+# 本机基础设施（原生 Windows 安装的 Redis/Memurai 二进制与数据，不入库）
+.infra/

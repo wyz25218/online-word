@@ -12,6 +12,11 @@ catalog:
   tsx: 4.23.15
   '@types/node': 22.20.4
 
+  # --- Prisma 7（latest 标签指向 8.0.0-rc，稳定线为 7.x；运行时用 @prisma/adapter-pg） ---
+  prisma: 7.10.0
+  '@prisma/client': 7.10.0
+  '@prisma/adapter-pg': 7.10.0
+
   # --- React（方案基线为 18.3.1，实施时当前稳定线为 19.3，Tiptap v3 peer 已声明支持 ^19） ---
   react: 19.3.0
   react-dom: 19.3.0

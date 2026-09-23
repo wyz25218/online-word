@@ -1,0 +1,53 @@
+# 基础设施编排（postgres15 / redis7 / minio）。
+# 本机开发（Windows）使用原生服务安装；此文件供 CI / Linux 环境 / 一键还原使用。
+# 端口与 .env.example 保持一致：PG 5432、Redis 6379、MinIO 9000/9001。
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: online-word-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: online_word
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d online_word']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: online-word-redis
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # M2（T2.1 附件上传）才实际使用；先就位便于 compose 一键起全套
+  minio:
+    image: minio/minio:latest
+    container_name: online-word-minio
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - miniodata:/data
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

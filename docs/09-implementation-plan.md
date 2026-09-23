@@ -100,7 +100,7 @@
 
 > 每项完成后勾选；含数据库的任务依赖 docker-compose 就绪。
 
-- [ ] **T1.0 基础设施（1d）**：`docker-compose.yml`（postgres15、redis7、minio）；server/collab 的 `.env.example`；Prisma 初始化
+- [x] **T1.0 基础设施（1d）✅ 2026-09-23**：`docker-compose.yml`（postgres15、redis7、minio）；server/collab 的 `.env.example`；Prisma 初始化（**偏差见进度日志：本机无 Docker，改原生 Windows 服务；Prisma 锁 7.10.0**）
 - [ ] **T1.1 认证（1.5d）**：NestJS 骨架；`POST /auth/login`（桩用户表）；JWT access/refresh 签发；`GET /collab/token?docId=`（绑定 docId、5min、jti）
 - [ ] **T1.2 文档 CRUD + 列表页（2d）**：docs 表与接口（06 文档）；web 引入 react-router、react-query；列表页/编辑页路由；新建/重命名/软删除；编辑页先验权限再挂编辑器（无权限态，不建 WS）
 - [ ] **T1.3 二进制持久化（2.5d）**：建表（03 文档 DDL）；collab 独立最小 DB client（仅两表权限的账号）；`docStore.loadState`（快照+增量回放）；`appendUpdate`（Redis 锁 + 水位行 `FOR UPDATE` + UNIQUE 幂等）；新建文档事务写空快照基线
@@ -209,3 +209,10 @@
   - 首次提交 `3ccd3a8`（37 文件，含 pnpm-lock.yaml，排除 node_modules/dist）。
   - 08 风险登记册 +4 条实际踩坑（cursor plugin key 冲突、Vite WS 代理、awareness userId、undoRedo 改名）；02 扩展清单同步。
   - **M0 准出**：C01/C04/C06 通过 + IndexedDB 持久化 + 多标签内存恢复；C02/C03/C05 待人工复现（机制具备）；C07 归 M1-T1.7。
+- 2026-09-23 **T1.0 完成**。
+  - **偏差 1（基础设施）**：本机无 Docker/Podman/WSL 发行版，经用户确认改用**原生 Windows 安装**：PostgreSQL 15.19（winget 静默装，服务 `postgresql-x64-15` 运行中，端口 5432，超级用户密码 postgres）；Redis 用 **Memurai Developer 4.1.2**（Redis 7.2.5 API 兼容）——MSI 自定义动作在本机被拒（SFXCA error 5），改 `msiexec /a` 管理员解包部署到 `.infra\memurai\`（已 gitignore），后台进程方式启动端口 6379；`docker-compose.yml` 保留供 CI/Linux。`.infra\start-dev.bat` 一键拉起。
+  - 数据库初始化：库 `online_word`；角色 `ow_app`（业务表，CREATEDB 供 Prisma shadow db）/`ow_collab`（仅协同二进制表）；PG15 默认收回 public schema CREATE，已显式 GRANT USAGE+CREATE。
+  - **偏差 2（Prisma 7）**：`latest` 标签指向 8.0.0-rc（RC 不可用），锁定稳定线 **7.10.0**。Prisma 7 关键变更已适配：schema datasource 不再支持 `url`（迁移连接串移到 `prisma.config.ts`，运行时用 `@prisma/adapter-pg` 注入 PrismaClient）；generator 必须为 `prisma-client` 且显式 output（`apps/server/src/generated/prisma`，已 gitignore）；CLI 不再自动加载 .env（config 内 Node 22 `process.loadEnvFile` 显式加载）。
+  - **TS7 兼容性验证（T0 计划中的最大风险点）**：Prisma 7 生成客户端 + `@prisma/adapter-pg` 在 TypeScript 7.0.2 strict 下 typecheck 通过；运行时冒烟 `$queryRawUnsafe('SELECT 1')` 返回 `[{ok:1}]`。**结论：T1.1 无需回退 TS 5.6**。
+  - 新增文件：`docker-compose.yml`、`apps/server/.env.example`、`apps/collab/.env.example`、`apps/server/prisma/schema.prisma`（M1 模型待 T1.2）、`apps/server/prisma.config.ts`、`apps/server/tsconfig.json`（NodeNext+ESM）、`apps/server/src/prisma.ts`（client 单例）、`.infra/start-dev.bat`。
+  - 验收：`pnpm -r typecheck` exit 0（含 server）；Memurai PONG；psql 双角色登录 OK。
