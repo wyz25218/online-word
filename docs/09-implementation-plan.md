@@ -104,7 +104,7 @@
 - [x] **T1.1 认证（1.5d）✅ 2026-09-23**：NestJS 骨架；`POST /auth/login`（桩用户表）；JWT access/refresh 签发；`GET /collab/token?docId=`（绑定 docId、5min、jti）
 - [x] **T1.2 文档 CRUD + 列表页（2d）✅ 2026-09-23**：docs 表与接口（06 文档）；web 引入 react-router、react-query；列表页/编辑页路由；新建/重命名/软删除；编辑页先验权限再挂编辑器（无权限态，不建 WS）
 - [x] **T1.3 二进制持久化（2.5d）✅ 2026-09-23**：建表（03 文档 DDL）；collab 独立最小 DB client（仅两表权限的账号）；`docStore.loadState`（快照+增量回放）；`appendUpdate`（Redis 锁 + 水位行 `FOR UPDATE` + UNIQUE 幂等）；新建文档事务写空快照基线
-- [ ] **T1.4 快照压缩（1.5d）**：阈值触发（M0 阈值 100 条/2MB）；锁+事务内 encode → upsert snapshot → 删旧增量；`onDestroy` 强制压缩；失败置房间只读
+- [x] **T1.4 快照压缩（1.5d）✅ 2026-09-23**：阈值触发（M0 阈值 100 条/2MB）；锁+事务内 encode → upsert snapshot → 删旧增量；`onDestroy` 强制压缩；失败置房间只读
 - [ ] **T1.5 真实鉴权（1.5d）**：collab `onAuthenticate` 接 server `/internal/docs/:id/membership`；Redis 缓存 60s；viewer 只读（网关丢弃写 + 前端 setEditable 双保险）；WS token 校验
 - [ ] **T1.6 离线与连接状态（1d）**：确认 y-indexeddb 全链路；zustand 接入；连接状态条四态（connected/syncing/offline/denied）；认证失败停止重试
 - [ ] **T1.7 Presence（1d）**：awareness 字段按 shared 类型固化；头像组按 userId 聚合；多标签去重；30s 超时清理；稳定取色
@@ -237,3 +237,10 @@
   - server：POST /docs 事务内 `$executeRaw` 写空快照基线（version=0, state=2 字节空 update）。**坑：Prisma 7 SQL 编译器 bytea 字面量 `'\x0000'` 报协议错"insufficient data left in message"**，必须 `decode('0000','hex')`；**带 arbiter 的 `ON CONFLICT (col)` 需要对索引列的 SELECT 权限**（PG 冲突检查要读索引），INSERT-only 账号须用无 arbiter 的 `ON CONFLICT DO NOTHING`。
   - 验证：`pnpm -r typecheck` exit 0；新建文档基线行确认（version=0/size_bytes=2/state_hex=0000）；浏览器输入中文+英文混合内容后 doc_updates 落库 1 条（78 字节）、水位 next_version=2；崩溃恢复端到端演练——杀 collab 进程→重启（服务端日志 `loaded snapshot=yes@v0 updates=1`）→清浏览器 IndexedDB→刷新页面→正文完整恢复，PASS。
   - 遗留：房间只读降级归 T1.4；压缩归 T1.4；token 重连续签归 T1.6。
+- 2026-09-23 **T1.4 完成**。
+  - collab 新增 `room-state.ts`（内存房间运行态：pendingUpdates/pendingBytes 驱动阈值、readOnly 降级标记；进程重启自然清零——Y.Doc 同步从 DB 重建，一致性不受影响）。`persistence.ts`：persistChange 成功后累加积压，达阈值（条数 ≥COMPACT_UPDATES=100 或字节 ≥COMPACT_BYTES=2MB，环境变量可覆盖）触发 `compactRoom`；`compactOnUnload` 供房间卸载时强制压缩；**写失败重试耗尽 → markRoomReadOnly + 抛错**。`db.client.ts` 新增 `compactDocInDb`：事务内读水位 → upsert 快照（ON CONFLICT (doc_id) DO UPDATE，ow_collab 有全 DML 无碍）→ DELETE version ≤ 水位。
+  - main.ts：**onAuthenticate 检查房间只读 → `connectionConfig.readOnly = true`（Hocuspocus 原生连接级只读：网关丢弃该连接 SyncStep2/SyncUpdate 并回复 SyncStatus false）**；onChange 失败 catch → `closeConnections(docName)` 踢出在场连接，客户端自动重连后以只读建立（防静默丢更新，宁丢不脏）；**关键坑：Hocuspocus v4 的 onDestroy 仅在 Server.destroy 时触发且 payload 无 documentName/document——房间卸载（最后连接关闭）的正确 hook 是 `beforeUnloadDocument`（document.destroy() 前最后时机，有 document 引用）**。
+  - 压缩与追加共用同一把 `lock:doc:{docId}`（docs/03 §5 提到的独立 compact 锁与互斥诉求矛盾，实测同锁最简单可靠）；压缩锁租期放宽至 30s。
+  - 验证（COMPACT_UPDATES=3 临时阈值 + 浏览器端到端）：①阈值触发 `reason=threshold updates=3 → snapshot@v5 bytes=281 updates_deleted=3`，水位推进正确；②强制压缩 `reason=onDestroy snapshot@v2 updates_deleted=2`，重连后 `loaded snapshot=yes@v2 updates=0` 且正文 5 行完整（快照单点恢复）；③只读降级——REVOKE ow_collab 对 doc_updates 的 INSERT 模拟写路径失效（比改 DATABASE_URL 更精准：DB 全断时 onLoadDocument 也失败、房间根本打不开，模拟不出"读成功写失败"）：日志依次出现 3 次 append 失败 → 房间降级只读 → 踢出在场连接 → 重连后 `[auth] 房间只读降级中，连接以只读建立`；GRANT 恢复 + 重启 collab 后写路径正常（降级态随进程重启自然解除）。
+  - 验证插曲：浏览器 agent 曾误报"刷新后新增内容丢失"，实为其执行顺序错乱（先清 IndexedDB 刷新、后输入）；以 DB 增量（v2 落库）+ 干净刷新后正文完整为由推翻，服务端链路无问题——**结论以 DB 状态与服务端日志为准，agent 叙述仅作线索**。
+  - 遗留：docs/03 §5 第 5 步"经内部接口回写 docs.current_version/updated_at"与定时扫描兜底任务不在 T1.4 范围（SERVER_INTERNAL_URL/INTERNAL_API_KEY 已就绪），归 M2 定时任务一并实现。

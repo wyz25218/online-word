@@ -87,3 +87,47 @@ export async function appendUpdate(docId: string, update: Uint8Array, clientId: 
     client.release()
   }
 }
+
+export interface CompactResult {
+  /** 快照对应的最新增量 version（水位 = next_version - 1） */
+  waterMark: bigint
+  /** 被删除的旧增量条数 */
+  deletedUpdates: number
+  snapshotBytes: number
+}
+
+/**
+ * docs/03 §5 压缩事务：upsert 快照（version = 当前水位）→ 删除水位前的全部增量。
+ * 调用方需持有 Redis 房间锁（与 appendUpdate 同一把锁互斥），水位在事务内不会被并发推进。
+ */
+export async function compactDocInDb(docId: string, state: Uint8Array): Promise<CompactResult> {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const cur = await client.query<{ next_version: string }>(
+      'SELECT next_version FROM doc_sync_cursors WHERE doc_id = $1 FOR UPDATE',
+      [docId],
+    )
+    const row = cur.rows[0]
+    const waterMark = row === undefined ? 0n : BigInt(row.next_version) - 1n
+    await client.query(
+      `INSERT INTO doc_snapshots(doc_id, version, state, size_bytes)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (doc_id) DO UPDATE
+         SET version = EXCLUDED.version, state = EXCLUDED.state,
+             size_bytes = EXCLUDED.size_bytes, created_at = now()`,
+      [docId, waterMark, Buffer.from(state), state.byteLength],
+    )
+    const del = await client.query(
+      'DELETE FROM doc_updates WHERE doc_id = $1 AND version <= $2',
+      [docId, waterMark],
+    )
+    await client.query('COMMIT')
+    return { waterMark, deletedUpdates: del.rowCount ?? 0, snapshotBytes: state.byteLength }
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
+}

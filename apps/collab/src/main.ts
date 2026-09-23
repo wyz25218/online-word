@@ -2,7 +2,8 @@ import './env.js'
 import { Server } from '@hocuspocus/server'
 import type { AwarenessUser, CollabContext } from '@online-word/shared'
 import { verifyToken } from './auth.service.js'
-import { loadDocState, persistChange } from './persistence.js'
+import { compactOnUnload, loadDocState, persistChange } from './persistence.js'
+import { isRoomReadOnly } from './room-state.js'
 import { closeRedis } from './redis.client.js'
 
 /** 允许的前端来源（逗号分隔，默认本地 Vite） */
@@ -33,10 +34,15 @@ const server = new Server<CollabContext>({
    * 返回的对象会被合并到 connection context（CollabContext）。
    * TODO(M1-T1.5): 接业务后端 GET /internal/docs/:id/membership + Redis 缓存 + JWT 验签。
    */
-  async onAuthenticate({ token, documentName }): Promise<Partial<CollabContext>> {
+  async onAuthenticate({ token, documentName, connectionConfig }): Promise<Partial<CollabContext>> {
     const auth = await verifyToken(token, documentName)
     if (!auth.ok || auth.permission === 'none') {
       throw new Error('permission denied')
+    }
+    // T1.4 持久化写路径失效的房间降级只读：网关丢弃该连接的写消息（Hocuspocus 原生 readOnly）
+    if (isRoomReadOnly(documentName)) {
+      connectionConfig.readOnly = true
+      console.warn(`[auth] room=${documentName} 房间只读降级中，连接以只读建立 user=${auth.user.userId}`)
     }
     console.log(`[auth] ok room=${documentName} user=${auth.user.userId}`)
     return { user: auth.user, permission: auth.permission }
@@ -53,10 +59,26 @@ const server = new Server<CollabContext>({
   /**
    * T1.3 持久化写入协议（docs/03 §4）：
    * 每次变更幂等追加到 doc_updates（Redis 锁 + 水位行 FOR UPDATE + UNIQUE 兜底）。
-   * 失败向上抛错由 Hocuspocus 记录；房间只读降级在 T1.4 落地。
+   * T1.4：追加重试耗尽 → 房间只读降级 + 断开在场连接（重连后以只读建立）；
+   *       积压达阈值在 persistChange 内触发快照压缩。
    */
   async onChange({ documentName, update, document }) {
-    await persistChange(documentName, update, document.clientID)
+    try {
+      await persistChange(documentName, update, document)
+    } catch (err) {
+      console.error(`[persist] room=${documentName} 踢出在场连接以触发只读重连:`, err instanceof Error ? err.message : err)
+      server.hocuspocus.closeConnections(documentName)
+    }
+  },
+
+  /**
+   * T1.4 快照压缩（docs/03 §5）：房间卸载前（最后一个连接关闭）强制压缩积压增量，
+   * 防止"无人房间积压"长期占表；此时内存 Y.Doc 尚未 destroy，可 encode 后随水位一并固化。
+   * 注：Hocuspocus v4 的 onDestroy 仅在 Server.destroy 时触发且无 document 引用，
+   * 房间卸载的对应 hook 是 beforeUnloadDocument（文档销毁前最后时机）。
+   */
+  async beforeUnloadDocument({ documentName, document }) {
+    await compactOnUnload(documentName, document)
   },
 
   async onListen({ port }) {
