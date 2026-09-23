@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { EditorContent } from '@tiptap/react'
+import { roleAtLeast, type AwarenessUser } from '@online-word/shared'
 import type { HocuspocusProvider } from '@hocuspocus/provider'
-import type { AwarenessUser } from '@online-word/shared'
 import { useCollabDoc } from './hooks/useCollabDoc'
 import { useTiptapEditor } from './hooks/useTiptapEditor'
 
@@ -40,6 +40,7 @@ export default function RichTextEditor({ docId, user, token }: Props) {
           {STATUS_LABEL[status] ?? status}
           {synced ? ' · 已同步' : ' · 同步中'}
         </span>
+        {!roleAtLeast(user.role, 'editor') && <span className="badge-readonly">只读模式</span>}
         <OnlineUsers provider={handles.provider} me={user} />
         <span style={{ marginLeft: 'auto' }}>文档 ID：{docId}</span>
       </div>

@@ -105,7 +105,7 @@
 - [x] **T1.2 文档 CRUD + 列表页（2d）✅ 2026-09-23**：docs 表与接口（06 文档）；web 引入 react-router、react-query；列表页/编辑页路由；新建/重命名/软删除；编辑页先验权限再挂编辑器（无权限态，不建 WS）
 - [x] **T1.3 二进制持久化（2.5d）✅ 2026-09-23**：建表（03 文档 DDL）；collab 独立最小 DB client（仅两表权限的账号）；`docStore.loadState`（快照+增量回放）；`appendUpdate`（Redis 锁 + 水位行 `FOR UPDATE` + UNIQUE 幂等）；新建文档事务写空快照基线
 - [x] **T1.4 快照压缩（1.5d）✅ 2026-09-23**：阈值触发（M0 阈值 100 条/2MB）；锁+事务内 encode → upsert snapshot → 删旧增量；`onDestroy` 强制压缩；失败置房间只读
-- [ ] **T1.5 真实鉴权（1.5d）**：collab `onAuthenticate` 接 server `/internal/docs/:id/membership`；Redis 缓存 60s；viewer 只读（网关丢弃写 + 前端 setEditable 双保险）；WS token 校验
+- [x] **T1.5 真实鉴权（1.5d）✅ 2026-09-23**：collab `onAuthenticate` 接 server `/internal/docs/:id/membership`；Redis 缓存 60s；viewer 只读（网关丢弃写 + 前端 setEditable 双保险）；WS token 校验
 - [ ] **T1.6 离线与连接状态（1d）**：确认 y-indexeddb 全链路；zustand 接入；连接状态条四态（connected/syncing/offline/denied）；认证失败停止重试
 - [ ] **T1.7 Presence（1d）**：awareness 字段按 shared 类型固化；头像组按 userId 聚合；多标签去重；30s 超时清理；稳定取色
 - [ ] **T1.8 踢人/降权（1d）**：server 权限变更 → 删鉴权缓存 + Redis PUBLISH；collab 房间订阅 → closeConnection；前端只读提示
@@ -244,3 +244,12 @@
   - 验证（COMPACT_UPDATES=3 临时阈值 + 浏览器端到端）：①阈值触发 `reason=threshold updates=3 → snapshot@v5 bytes=281 updates_deleted=3`，水位推进正确；②强制压缩 `reason=onDestroy snapshot@v2 updates_deleted=2`，重连后 `loaded snapshot=yes@v2 updates=0` 且正文 5 行完整（快照单点恢复）；③只读降级——REVOKE ow_collab 对 doc_updates 的 INSERT 模拟写路径失效（比改 DATABASE_URL 更精准：DB 全断时 onLoadDocument 也失败、房间根本打不开，模拟不出"读成功写失败"）：日志依次出现 3 次 append 失败 → 房间降级只读 → 踢出在场连接 → 重连后 `[auth] 房间只读降级中，连接以只读建立`；GRANT 恢复 + 重启 collab 后写路径正常（降级态随进程重启自然解除）。
   - 验证插曲：浏览器 agent 曾误报"刷新后新增内容丢失"，实为其执行顺序错乱（先清 IndexedDB 刷新、后输入）；以 DB 增量（v2 落库）+ 干净刷新后正文完整为由推翻，服务端链路无问题——**结论以 DB 状态与服务端日志为准，agent 叙述仅作线索**。
   - 遗留：docs/03 §5 第 5 步"经内部接口回写 docs.current_version/updated_at"与定时扫描兜底任务不在 T1.4 范围（SERVER_INTERNAL_URL/INTERNAL_API_KEY 已就绪），归 M2 定时任务一并实现。
+- 2026-09-23 **T1.5 完成**。
+  - server：新增 `internal` 模块——`InternalApiKeyGuard`（x-internal-key 恒等比较，INTERNAL_API_KEY 未配置时恒拒绝）+ `GET /internal/docs/:docId/membership?userId=`（zod 双参 uuid 校验防 PG 类型错）。**设计：非成员返回 200 + `ok:false`**，让网关能区分"业务上无权"（正常结论，实时查库不缓存）与"服务异常"（非 200，网关 fail-closed）；响应即 shared `AuthResult`（permission=permissionOf(role)、`ttlMs=60_000` 下发缓存 TTL），网关零转换消费。每次实际查库打 `[internal] membership` 日志（T1.8 删缓存前的观测点）。
+  - collab：`auth.service.ts` 真实实现——①jose 本地验签（HS256/JWT_COLLAB_SECRET 与 server 共钥，要求 `use=collab` 且 `claims.docId === 房间名`，exp 自动校验）；②membership 查询 + Redis 缓存 `collab:membership:{docId}:{userId}` PX=server 下发 ttlMs，**仅缓存放行结论**（拒绝不缓存：管理员加成员后立即可连，无 60s 空窗）；③Redis 故障降级直查后端（缓存是优化不是依赖），后端不可达保守拒绝（fail-closed）。main.ts onAuthenticate：`permission=read → connectionConfig.readOnly=true`（viewer/commenter 连接级只读，Hocuspocus 丢弃写消息），与 T1.4 房间降级只读叠加生效。collab 新增依赖 jose（catalog 6.2.12）+ `.env` 增 JWT_COLLAB_SECRET。
+  - web：`useTiptapEditor` 初始 `editable: roleAtLeast(role,'editor')`（前端 setEditable 双保险）+ 状态条「只读模式」徽标。
+  - **决策：jti 一次性去重暂缓**（T1.1 曾计划归 T1.5）——强制一次性使用会打断 provider 断线自动重连（同 token 重连被拒），与 T1.6 的 token 续签策略强耦合，移至 T1.6 一并落地；T1.5 范围内 token 在 5min TTL 内可复用。
+  - 协议备忘：server→client 的 Auth 回复为 `varString(docName)+varUint(2)+varUint(subtype)+payload`，subtype **1=Permission（payload varString "permission-denied"）、2=Authenticated（payload varString scope "read-write"/"readonly"）**；readOnly 连接的 scope 即 "readonly"。
+  - 验证（node 脚本手工编码 Auth 消息四阶段 + 浏览器端到端）：①非成员 bob/carol 连 WS → permission-denied；②DB 加成员后 owner/editor → scope="read-write"、viewer → scope="readonly"（连接级只读生效）；③缓存命中——60s 内重连 3 次，server `[internal]` 查库日志数不变，Redis key TTL=60s；④token 绑定校验——DOC_A 的 token 连其他房间、乱串 token 均被拒；⑤浏览器 carol（viewer）端到端：列表页文档带"只读"标签、编辑页「只读模式」徽标、`.ProseMirror` isContentEditable=false、键入被阻止，在线列表正常。
+  - 验证插曲：浏览器旧标签页持有的 M0/过期 token 重连被拒属预期（T1.6 续签前的已知行为），刷新页面即恢复。
+  - 遗留：WS token 5min 过期的重连续签归 T1.6；踢人/降权的事件推送（删缓存 + PUBLISH）归 T1.8。

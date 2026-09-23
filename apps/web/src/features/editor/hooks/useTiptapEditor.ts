@@ -2,8 +2,8 @@ import { useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Collaboration from '@tiptap/extension-collaboration'
+import { roleAtLeast, type AwarenessUser } from '@online-word/shared'
 import type { Editor } from '@tiptap/core'
-import type { AwarenessUser } from '@online-word/shared'
 import type { CollabHandles } from './useCollabDoc'
 
 /**
@@ -19,10 +19,11 @@ import type { CollabHandles } from './useCollabDoc'
  */
 export function useTiptapEditor(
   handles: CollabHandles,
-  _user: AwarenessUser,
+  user: AwarenessUser,
 ): Editor | null {
   return useEditor({
-    editable: true,
+    // viewer/commenter 本地可编辑态关闭（双保险之一；网关侧连接级只读丢弃写消息）
+    editable: roleAtLeast(user.role, 'editor'),
     immediatelyRender: false,
     extensions: [
       StarterKit.configure({

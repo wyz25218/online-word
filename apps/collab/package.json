@@ -14,6 +14,7 @@
     "@hocuspocus/server": "catalog:",
     "@online-word/shared": "workspace:*",
     "ioredis": "catalog:",
+    "jose": "catalog:",
     "pg": "catalog:",
     "yjs": "catalog:"
   },

@@ -30,21 +30,26 @@ const server = new Server<CollabContext>({
   },
 
   /**
-   * M0 桩鉴权：有 token 即放行，返回固定测试用户。
+   * T1.5 真实鉴权：JWT 验签（use=collab、绑定 docId）+ server membership 内部接口（Redis 缓存 60s）。
+   * viewer/commenter → 连接级只读（Hocuspocus 丢弃该连接的写消息）；
+   * T1.4 房间写路径降级时，即使 editor 也以只读建立。
    * 返回的对象会被合并到 connection context（CollabContext）。
-   * TODO(M1-T1.5): 接业务后端 GET /internal/docs/:id/membership + Redis 缓存 + JWT 验签。
    */
   async onAuthenticate({ token, documentName, connectionConfig }): Promise<Partial<CollabContext>> {
     const auth = await verifyToken(token, documentName)
     if (!auth.ok || auth.permission === 'none') {
       throw new Error('permission denied')
     }
-    // T1.4 持久化写路径失效的房间降级只读：网关丢弃该连接的写消息（Hocuspocus 原生 readOnly）
+    if (auth.permission === 'read') {
+      connectionConfig.readOnly = true
+    }
     if (isRoomReadOnly(documentName)) {
       connectionConfig.readOnly = true
-      console.warn(`[auth] room=${documentName} 房间只读降级中，连接以只读建立 user=${auth.user.userId}`)
+      console.warn(`[auth] room=${documentName} 房间只读降级中 user=${auth.user.userId}`)
     }
-    console.log(`[auth] ok room=${documentName} user=${auth.user.userId}`)
+    console.log(
+      `[auth] ok room=${documentName} user=${auth.user.userId} role=${auth.user.role} permission=${auth.permission}${connectionConfig.readOnly ? ' (readOnly)' : ''}`,
+    )
     return { user: auth.user, permission: auth.permission }
   },
 
