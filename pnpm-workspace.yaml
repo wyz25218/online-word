@@ -30,6 +30,10 @@ catalog:
   jose: 6.2.12
   zod: 4.6.5
 
+  # --- 对象存储（T2.1）：S3 SDK 签名直传（本地 dev 用 SeaweedFS S3 兼容网关，prod 为 MinIO/S3） ---
+  '@aws-sdk/client-s3': 3.1149.0
+  '@aws-sdk/s3-request-presigner': 3.1149.0
+
   # --- React（方案基线为 18.3.1，实施时当前稳定线为 19.3，Tiptap v3 peer 已声明支持 ^19） ---
   react: 19.3.0
   react-dom: 19.3.0
@@ -68,6 +72,7 @@ catalog:
   '@tiptap/extension-placeholder': 3.31.3
   '@tiptap/extension-collaboration': 3.31.3
   '@tiptap/extension-character-count': 3.31.3
+  '@tiptap/extension-image': 3.31.3
   # 注意：该包 npm latest 标签仍指向 2.26.2（v2），v3 正式版必须显式锁定 3.0.0
   '@tiptap/extension-collaboration-cursor': 3.0.0
   # v3 的 y-prosemirror fork，由 collaboration 扩展自动依赖，此处登记以备显式引用

@@ -6,6 +6,7 @@ import { roleAtLeast, type AwarenessUser } from '@online-word/shared'
 import { useCollabDoc, type CollabHandles } from './hooks/useCollabDoc'
 import type { CollabStore } from './collab.store'
 import { useTiptapEditor } from './hooks/useTiptapEditor'
+import { startImageUploads } from './uploader'
 
 interface Props {
   docId: string
@@ -38,7 +39,7 @@ export default function RichTextEditor({ docId, user, getToken }: Props) {
   return (
     <div className="editor-shell">
       <StatusBar handles={handles} user={user} docId={docId} />
-      <EditorView handles={handles} user={user} />
+      <EditorView handles={handles} user={user} docId={docId} />
     </div>
   )
 }
@@ -77,8 +78,8 @@ function StatusBar({ handles, user, docId }: { handles: CollabHandles; user: Awa
 }
 
 /** 内层组件：handles 已保证非空，可安全调用 useTiptapEditor */
-function EditorView({ handles, user }: { handles: CollabHandles; user: AwarenessUser }) {
-  const editor = useTiptapEditor(handles, user)
+function EditorView({ handles, user, docId }: { handles: CollabHandles; user: AwarenessUser; docId: string }) {
+  const editor = useTiptapEditor(handles, user, docId)
   // T1.8：网关 scope 联动编辑态——降权（scope=readonly）立即置只读，恢复写权限后可继续编辑
   const authorizedScope = useStore(handles.store, (s) => s.authorizedScope)
   const editable = authorizedScope !== 'readonly' && roleAtLeast(user.role, 'editor')
@@ -90,14 +91,14 @@ function EditorView({ handles, user }: { handles: CollabHandles; user: Awareness
 
   return (
     <div className="editor-body">
-      <Toolbar editor={editor} editable={editable} />
+      <Toolbar editor={editor} editable={editable} docId={docId} />
       <EditorContent editor={editor} className="ProseMirror" />
     </div>
   )
 }
 
 /** 工具栏按钮组 + 字数统计；active/disabled 态经 useEditorState 选择器按需订阅（docs/05 §5） */
-function Toolbar({ editor, editable }: { editor: Editor | null; editable: boolean }) {
+function Toolbar({ editor, editable, docId }: { editor: Editor | null; editable: boolean; docId: string }) {
   const s = useEditorState({
     editor,
     selector: (ctx) => {
@@ -166,6 +167,22 @@ function Toolbar({ editor, editable }: { editor: Editor | null; editable: boolea
         ),
       )}
       <span className="tb-wordcount">字数 {s.chars}</span>
+      {/* T2.1 拦截 3/3：工具栏选图 → 统一上传器 */}
+      <label className={`tb-btn tb-file${editable ? '' : ' disabled'}`} title="插入图片">
+        图片
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
+          multiple
+          hidden
+          disabled={!editable}
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? [])
+            if (files.length > 0 && editor) startImageUploads(editor.view, docId, files)
+            e.target.value = '' // 允许连续选择同一文件
+          }}
+        />
+      </label>
     </div>
   )
 }

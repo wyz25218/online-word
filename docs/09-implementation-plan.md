@@ -117,7 +117,7 @@
 
 ## M2 · Word 类功能（第 5–8 周，约 20 人日，按序）
 
-- [ ] **T2.1 图片/附件（3d）**：server 签名直传（MinIO）+ attachments 表；web 三处拦截（粘贴/拖拽/工具栏）统一上传器；失败占位与重试；节点仅存 URL+尺寸；C16 用例
+- [x] **T2.1 图片/附件（3d）**：server 签名直传（MinIO）+ attachments 表；web 三处拦截（粘贴/拖拽/工具栏）统一上传器；失败占位与重试；节点仅存 URL+尺寸；C16 用例
 - [ ] **T2.2 富格式扩展（3d）**：Table 全家桶、TaskList、Link、Underline、Highlight、HorizontalRule、CodeBlockLowlight；表格协同用例 C08 专项
 - [ ] **T2.3 评论（4d）**：自研 CommentMark 扩展（threadId）；`comments` 顶层 Y.Array 命名空间；commenter 命名空间级权限；侧栏线程 UI；网关抽取 → server `/internal/extracted` 回写 comments 表；resolved 折叠；C09 用例
 - [ ] **T2.4 版本历史（3d）**：手动 + 10 分钟定时 revision；时间轴 UI；只读预览；恢复走"整体替换 update"（04 文档第 7 节），禁止清空重建；C15 用例
@@ -293,3 +293,17 @@
   - **崩溃演练（C11，三重证据全 PASS）**：①基线——浏览器输入"硬杀恢复演练基线A1"（合并进已有 H2 标题，无碍断言）确认已连接；②`taskkill /F /T` 硬杀 collab 整棵进程树（tsx watch + 子进程，等效 kill -9，无优雅停机），:8080 立即无监听；③**DB 回放确认崩溃前文本已落库**（snapshot v10 + 28 条增量至 v38，回放文本含 A1）；④重启 collab → 浏览器 8s 内**自动重连**"已连接"，编辑器内容完整（provider 重连 + onLoadDocument 从 DB 重建）；⑤重启后追加"重启后追加B2"→ 刷新页面两段都在 → DB 回放 updates 至 v40 含 B2（零丢失闭环）。
   - 性能观察结论：28 条增量回放 replay=7ms（applyUpdate 纳秒级/条），query=35ms（本地 PG 往返），total=42ms——**回放成本可忽略，瓶颈在 DB 查询往返**；万条级增量预估 replay 也仅 ~0.3s，压缩阈值（100 条）下的正常水位完全无感。
   - 环境插曲：浏览器会话残留 bob 登录态（非 alice），但 bob 已在 T1.8 验证后 restore 为 editor，写权限正常，演练不受影响。
+- 2026-10-10 **T2.1 完成**。
+  - **偏差 1（对象存储）**：MinIO 开源版已归档下架（dl.min.io 410 Gone、GitHub release 404），dev 环境改用 **SeaweedFS 4.48**（S3 API 兼容 AWS SDK v3，weed.exe 146MB 置于 `.infra\seaweedfs\`，已 gitignore；`docker-compose.yml` 保留 minio 服务供 CI/Linux）。
+  - **关键坑 1（AWS SDK v3 presign）**：client 默认 `requestChecksumCalculation=WHEN_SUPPORTED` 会在预签名 URL 掺入 `x-amz-checksum-crc32` 头要求，浏览器 PUT 直接 400 BadDigest；必须显式 `requestChecksumCalculation: 'WHEN_REQUIRED'` 才能生成干净可用的 presigned PUT URL（实测对照验证）。
+  - **架构决策（/s3proxy 同源代理）**：SigV4 签名 host 是 S3 endpoint（localhost:9000），返回给前端的 uploadUrl/publicUrl 把 `scheme://host` 替换为 `/s3proxy` 前缀，Vite/nginx `changeOrigin: true` 还原 Host 后验签通过；**文档节点只存相对 URL**（环境无关、同源零 CORS、换存储域名不用迁移数据）。
+  - **关键坑 2（Prisma 7 drift）**：collab 三表不在 Prisma 迁移链，`migrate dev` 检出 drift 会要求 reset（**绝不可**）；解法 = 手写 `migration.sql`（attachments 表 + unique object_key + doc 索引 + FK CASCADE）→ `prisma db execute --file` → `prisma migrate resolve --applied`。
+  - **关键坑 3（NestJS Guard 第三次踩）**：AttachmentsModule 的 controller 同时挂 JwtAuthGuard 与 DocRoleGuard，Guard 在**消费方模块**实例化——必须 imports AuthModule + PermissionsModule（同 T1.2/T1.8，注释已写明）。
+  - **关键坑 4（PM setNodeMarkup 全量替换）**：`tr.setNodeMarkup(pos, undefined, attrs)` 走 `node.type.create(attrs)` 是**全量替换而非合并**，未提供的 attrs 回落 default(null)——失败路径只传 `{uploadState:'error'}` 会把 alt/uploadId 全部冲掉，导致 handleClickOn 的重试条件（uploadId 非空）永不命中；修复 = applyAttrs 先取 `node.attrs` 合并 patch 再传入。
+  - **关键坑 5（fetch 响应体未消费）**：S3 PutObject 返回空 body，`putToStorage` 不消费 body 时 Chromium 会在 console 补记 net::ERR_ABORTED 噪音（请求实际已 200）；修复 = `res.body?.cancel()`。
+  - **关键坑 6（SeaweedFS RAFT 脏状态）**：强杀 weed 后重启卡 `raft.Server: Not current leader` 死循环；删 `data\m9333`（master RAFT 目录）保留 volume 数据重启即恢复，已上传对象可读性实测无损。
+  - 环境坑：沙箱会回收 Start-Process 启动的常驻进程（同命令内探活成功、跨命令即 ECONNREFUSED），Memurai/weed 须**沙箱外启动**。
+  - 实现：server `infra/s3.client.ts`（单例 + signUpload 返回 /s3proxy 前缀 URL + objectKey 规则 `u/{yyyyMM}/{uuid}/{消毒文件名}`）+ attachments 模块（POST /upload/sign 仅登录、POST/GET /docs/:id/attachments 走 requireRole('editor')；**register 先 HEAD 对象校验真实存在且 size 一致，防凭空登记**）；web `uploader.ts`（三入口统一：handlePaste/handleDrop/工具栏 file input；validateFile 白名单+大小上限，不合格直接 error 占位不发请求；sign→PUT→register→measureImage→回填 src/alt/width/height 并清空上传态；**上传态用节点自定义 attrs uploadId/uploadState 承载、随 Y.Doc 协同广播**，File 仅存创建端内存 Map）。Image 扩展锁 @tiptap/extension-image 3.31.3（与 Tiptap 组强耦合）。
+  - 验证（浏览器 agent DOM 属性级 + DB/服务端实锤，全 PASS）：①三入口——粘贴/工具栏/拖拽各贴一张，全部完成态（src=/s3proxy/ow-attachments/u/202610/…、state=null、width=200、height=100、alt=文件名）；②**C16 并发**——双标签同文档各自粘贴（paste-a/paste-b），DB attachments 表 10 条登记（各 objectKey 唯一）、两标签 img 列表一致收敛、无 uploading/error 残留、正文编辑不阻塞；③失败占位——停 weed 后贴图：红虚线 error 占位（borderStyle=dashed、rgb(217,48,37)）、alt/uploadId 保留、经 Y.Doc 同步到另一标签；④点击重试——恢复 weed 后对 error 占位派发完整 mousedown/mouseup/click 序列 → 重新 sign/PUT/register → 完成态（新 objectKey、尺寸回填）；⑤非图片拒绝——粘贴 evil.exe 立即 error 占位、零网络请求。
+  - 验证插曲：①PM 真编辑根自带 `.tiptap.ProseMirror` 类（EditorContent 外层容器的 className 不在 PM 根上），自动化选择器必须用 `.tiptap.ProseMirror` 双类；②`el.click()` 只派发 click 事件，PM handleClickOn 需 mousedown→mouseup 完整序列（agent 两次"重试无效"均因此，非应用 bug）；③跨端重试是设计外行为（File 仅在创建端内存），error 占位在他人端仅展示不可重试——"上传中刷新页面残留占位"的清理优化归 M2 后续。
+  - 待办：附件下载/预览页、图片对齐/缩放、非图片附件以文件卡片插入正文（登记 API 已就绪，前端 UI 归 M2 后续）。

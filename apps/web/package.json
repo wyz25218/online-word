@@ -17,6 +17,7 @@
     "@tiptap/extension-collaboration": "catalog:",
     "@tiptap/extension-character-count": "catalog:",
     "@tiptap/extension-collaboration-cursor": "catalog:",
+    "@tiptap/extension-image": "catalog:",
     "@tiptap/extension-placeholder": "catalog:",
     "@tiptap/pm": "catalog:",
     "@tiptap/react": "catalog:",

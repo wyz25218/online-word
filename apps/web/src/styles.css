@@ -208,6 +208,46 @@ body {
   height: 0;
 }
 
+/* T2.1 图片节点与上传占位 */
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  display: block;
+  margin: 8px 0;
+}
+
+.ProseMirror img[data-upload-state='uploading'] {
+  opacity: 0.45;
+  min-width: 160px;
+  min-height: 90px;
+  background: repeating-linear-gradient(45deg, #eef1f5 0 12px, #e3e8ef 12px 24px);
+  animation: ow-uploading 1.2s linear infinite;
+}
+
+@keyframes ow-uploading {
+  from { background-position: 0 0; }
+  to { background-position: 34px 0; }
+}
+
+.ProseMirror img[data-upload-state='error'] {
+  opacity: 0.55;
+  min-width: 160px;
+  min-height: 90px;
+  background: #fdecea;
+  border: 2px dashed #d93025;
+  cursor: pointer;
+}
+
+.ProseMirror img[data-upload-state='error']::selection {
+  background: transparent;
+}
+
+.tb-file.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 /* 远程光标名牌（来自 collaboration-cursor） */
 .collaboration-cursor__caret {
   position: relative;

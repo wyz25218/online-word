@@ -27,7 +27,8 @@ model Doc {
   currentVersion BigInt    @default(0) @map("current_version") // 最新快照点版本（collab 经内部接口回写）
   lastActiveAt   DateTime  @default(now()) @map("last_active_at") @db.Timestamptz(6)
 
-  members DocMember[]
+  members     DocMember[]
+  attachments Attachment[]
 
   @@index([ownerId], map: "idx_docs_owner")
   @@map("docs")
@@ -44,4 +45,20 @@ model DocMember {
   @@id([docId, userId])
   @@index([userId], map: "idx_doc_members_user")
   @@map("doc_members")
+}
+
+// T2.1：附件元数据（二进制在对象存储，客户端签名直传后登记）
+model Attachment {
+  id         String   @id @default(uuid()) @db.Uuid
+  docId      String   @map("doc_id") @db.Uuid
+  uploaderId String   @map("uploader_id") @db.Uuid
+  objectKey  String   @unique @map("object_key") // MinIO/S3 key
+  mimeType   String   @map("mime_type")
+  sizeBytes  BigInt   @map("size_bytes")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  doc Doc @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  @@index([docId], map: "idx_attachments_doc")
+  @@map("attachments")
 }
