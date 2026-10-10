@@ -134,6 +134,7 @@ body {
 }
 
 .editor-toolbar {
+  position: relative; /* 链接浮层锚点 */
   display: flex;
   align-items: center;
   gap: 4px;
@@ -246,6 +247,171 @@ body {
 .tb-file.disabled {
   opacity: 0.45;
   pointer-events: none;
+}
+
+/* ===== T2.2：链接编辑浮层 ===== */
+
+.tb-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 12px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.tb-popover-input {
+  width: 260px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+
+.tb-popover-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+/* ===== T2.2：表格 ===== */
+
+.ProseMirror .tableWrapper {
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.ProseMirror table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 0;
+}
+
+.ProseMirror table td,
+.ProseMirror table th {
+  border: 1px solid #c9c9ce;
+  padding: 6px 10px;
+  vertical-align: top;
+  position: relative;
+  min-width: 2em;
+}
+
+.ProseMirror table th {
+  background: #f2f2f4;
+  font-weight: 600;
+  text-align: left;
+}
+
+.ProseMirror table .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(11, 87, 208, 0.12);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.ProseMirror table .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  background: #0b57d0;
+  z-index: 3;
+}
+
+.ProseMirror.resize-cursor {
+  cursor: col-resize;
+}
+
+/* ===== T2.2：任务列表 ===== */
+
+.ProseMirror ul[data-type='taskList'] {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+}
+
+.ProseMirror ul[data-type='taskList'] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ProseMirror ul[data-type='taskList'] li > label {
+  flex: 0 0 auto;
+  margin-top: 5px;
+  user-select: none;
+}
+
+.ProseMirror ul[data-type='taskList'] li > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ProseMirror ul[data-type='taskList'] li[data-checked='true'] > div {
+  color: #86868b;
+  text-decoration: line-through;
+}
+
+/* ===== T2.2：代码块 / 行内代码 / 高亮 / 分割线 / 链接 ===== */
+
+.ProseMirror pre {
+  background: #0d1117;
+  color: #e6edf3;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.ProseMirror pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  border-radius: 0;
+}
+
+.ProseMirror code {
+  background: #f2f2f4;
+  border-radius: 4px;
+  padding: 2px 5px;
+  font-size: 0.9em;
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+.ProseMirror mark {
+  background: #ffe58f;
+  border-radius: 2px;
+  padding: 0 2px;
+  color: inherit;
+}
+
+.ProseMirror hr {
+  border: none;
+  border-top: 2px solid #d8d8dc;
+  margin: 24px 0;
+}
+
+.ProseMirror hr.ProseMirror-selectednode {
+  border-top-color: #0b57d0;
+}
+
+.ProseMirror a {
+  color: #0b57d0;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 /* 远程光标名牌（来自 collaboration-cursor） */

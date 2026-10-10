@@ -73,6 +73,13 @@ catalog:
   '@tiptap/extension-collaboration': 3.31.3
   '@tiptap/extension-character-count': 3.31.3
   '@tiptap/extension-image': 3.31.3
+  # T2.2 富格式：表格（含 TableRow/TableHeader/TableCell）、任务列表、高亮、代码块高亮
+  '@tiptap/extension-table': 3.31.3
+  '@tiptap/extension-highlight': 3.31.3
+  '@tiptap/extension-list': 3.31.3
+  '@tiptap/extension-code-block-lowlight': 3.31.3
+  lowlight: 3.3.0
+  highlight.js: 11.12.0
   # 注意：该包 npm latest 标签仍指向 2.26.2（v2），v3 正式版必须显式锁定 3.0.0
   '@tiptap/extension-collaboration-cursor': 3.0.0
   # v3 的 y-prosemirror fork，由 collaboration 扩展自动依赖，此处登记以备显式引用

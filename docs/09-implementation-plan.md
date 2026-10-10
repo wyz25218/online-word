@@ -118,7 +118,7 @@
 ## M2 · Word 类功能（第 5–8 周，约 20 人日，按序）
 
 - [x] **T2.1 图片/附件（3d）**：server 签名直传（MinIO）+ attachments 表；web 三处拦截（粘贴/拖拽/工具栏）统一上传器；失败占位与重试；节点仅存 URL+尺寸；C16 用例
-- [ ] **T2.2 富格式扩展（3d）**：Table 全家桶、TaskList、Link、Underline、Highlight、HorizontalRule、CodeBlockLowlight；表格协同用例 C08 专项
+- [x] **T2.2 富格式扩展（3d）✅ 2026-10-10**：Table 全家桶、TaskList、Link、Underline、Highlight、HorizontalRule、CodeBlockLowlight；表格协同用例 C08 专项
 - [ ] **T2.3 评论（4d）**：自研 CommentMark 扩展（threadId）；`comments` 顶层 Y.Array 命名空间；commenter 命名空间级权限；侧栏线程 UI；网关抽取 → server `/internal/extracted` 回写 comments 表；resolved 折叠；C09 用例
 - [ ] **T2.4 版本历史（3d）**：手动 + 10 分钟定时 revision；时间轴 UI；只读预览；恢复走"整体替换 update"（04 文档第 7 节），禁止清空重建；C15 用例
 - [ ] **T2.5 分享与权限面板（2d）**：邀请/改角色/移除；链接四档 + 随机 token；匿名只读端到端；C17 用例
@@ -307,3 +307,12 @@
   - 验证（浏览器 agent DOM 属性级 + DB/服务端实锤，全 PASS）：①三入口——粘贴/工具栏/拖拽各贴一张，全部完成态（src=/s3proxy/ow-attachments/u/202610/…、state=null、width=200、height=100、alt=文件名）；②**C16 并发**——双标签同文档各自粘贴（paste-a/paste-b），DB attachments 表 10 条登记（各 objectKey 唯一）、两标签 img 列表一致收敛、无 uploading/error 残留、正文编辑不阻塞；③失败占位——停 weed 后贴图：红虚线 error 占位（borderStyle=dashed、rgb(217,48,37)）、alt/uploadId 保留、经 Y.Doc 同步到另一标签；④点击重试——恢复 weed 后对 error 占位派发完整 mousedown/mouseup/click 序列 → 重新 sign/PUT/register → 完成态（新 objectKey、尺寸回填）；⑤非图片拒绝——粘贴 evil.exe 立即 error 占位、零网络请求。
   - 验证插曲：①PM 真编辑根自带 `.tiptap.ProseMirror` 类（EditorContent 外层容器的 className 不在 PM 根上），自动化选择器必须用 `.tiptap.ProseMirror` 双类；②`el.click()` 只派发 click 事件，PM handleClickOn 需 mousedown→mouseup 完整序列（agent 两次"重试无效"均因此，非应用 bug）；③跨端重试是设计外行为（File 仅在创建端内存），error 占位在他人端仅展示不可重试——"上传中刷新页面残留占位"的清理优化归 M2 后续。
   - 待办：附件下载/预览页、图片对齐/缩放、非图片附件以文件卡片插入正文（登记 API 已就绪，前端 UI 归 M2 后续）。
+- 2026-10-10 **T2.2 完成**。
+  - 依赖（catalog 均锁 3.31.3 与 Tiptap 组强耦合，ADR-05）：@tiptap/extension-table 组（Table resizable + TableRow/TableHeader/TableCell）、extension-task-list（TaskItem nested）、extension-underline、extension-link（openOnClick:false 协同下不导航）、extension-highlight、extension-code-block-lowlight（lowlight=createLowlight(common)）；StarterKit 补关 `codeBlock: false`（CodeBlockLowlight 替代内置，避免双扩展冲突）。
+  - 工具栏扩展：插表（3x3 withHeaderRow）/+行/-行/+列/-列/表头行切换/删表、☑任务列表、代码块、分割线、U、高亮；链接走自绘浮层（Enter 确定/Escape 取消，空值=unsetLink，无协议自动补 https://，不用 window.prompt）。
+  - **C08 专项 PASS（三方收敛）**：用户 A（浏览器）加行 → 用户 B（Node WS 客户端）检测到 rows=4 后自动加列 → 双方单元格编辑互见（B 写 [1][1]="B写内容" → A 端实时显示）→ 最终**浏览器 A、Node B、DB 合并 grid 三方均为 4x4 且 [1][1] 内容一致，零内容丢失、零错位**；DB v124 增量落库、水位 cursor=125 推进正常。
+  - 验证钩子：`window.__owEditor` 暴露 editor 实例——**事务 API（editor.chain()）不依赖 DOM 焦点**，headless 浏览器可靠驱动全部富格式命令（T2.3 评论验证复用）。
+  - **测试环境结论（非产品 bug）**：①WebView 后台标签的 WS 被冻结（provider status 仍显示"已连接"但数据不流动，同刻仅前台标签网络活着）——此前"并发种子未同步"由此产生，Node WS 客户端直连 collab 模拟协同用户绕开此限制（hocuspocus v4 手工解码：Auth 回复 `varString(docName)+varUint(2)+varUint(sub=2=Authenticated)+varString(scope)`，**M0 记录把 sub=2 误记为 PermissionDenied**，实际 1=Permission/2=Authenticated）；②WebView 非前台时 contenteditable 无法聚焦（pm.focus() 后 activeElement 仍是 BODY）→ execCommand 失效；③posAtCoords 依赖视口/滚动状态，刷新后不可靠——定位单元格应遍历 `editor.state.doc` 树计算绝对 pos。
+  - 单标签功能全 PASS（DOM 属性级取证）：任务列表（data-checked 切换）、代码块（pre>code.lowlight 高亮类）、分割线（hr）、链接全流程（set→isActive→改 href→unset 保留文本）、表格全家桶（增删行列/表头行/删表，rows/cols 读数精确）、U/高亮（DOM `<u>`/`<mark>` + active + toggle 移除）、undo/redo（T1.9 机制对表格操作同样生效）。
+  - 验证插曲：写操作失败必须先读快照验证再重试（防重复插入）——两次"页面被刷新"打断加行，实际副作用已生效（B 端 `recv update rows=4`）；"在线 N 人"不能证明协同正常（同账号多标签被 userId 去重）。
+  - `pnpm -r typecheck` exit 0；临时验证脚本已清理。

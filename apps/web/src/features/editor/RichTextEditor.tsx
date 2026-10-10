@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { EditorContent, useEditorState } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { useStore } from 'zustand'
@@ -89,6 +89,11 @@ function EditorView({ handles, user, docId }: { handles: CollabHandles; user: Aw
     editor.setEditable(editable)
   }, [editor, editable])
 
+  // 自动化验证钩子：暴露 editor 实例（事务 API 不依赖 DOM 焦点，供 headless 浏览器验证使用）
+  useEffect(() => {
+    ;(window as unknown as { __owEditor?: Editor | null }).__owEditor = editor
+  }, [editor])
+
   return (
     <div className="editor-body">
       <Toolbar editor={editor} editable={editable} docId={docId} />
@@ -99,6 +104,9 @@ function EditorView({ handles, user, docId }: { handles: CollabHandles; user: Aw
 
 /** 工具栏按钮组 + 字数统计；active/disabled 态经 useEditorState 选择器按需订阅（docs/05 §5） */
 function Toolbar({ editor, editable, docId }: { editor: Editor | null; editable: boolean; docId: string }) {
+  // T2.2：链接编辑浮层（不用 window.prompt，自动化测试与用户体验都更可控）
+  const [linkEdit, setLinkEdit] = useState<{ url: string } | null>(null)
+
   const s = useEditorState({
     editor,
     selector: (ctx) => {
@@ -108,6 +116,21 @@ function Toolbar({ editor, editable, docId }: { editor: Editor | null; editable:
         bold: e.isActive('bold'),
         italic: e.isActive('italic'),
         strike: e.isActive('strike'),
+        // T2.2：富格式 active 态
+        underline: e.isActive('underline'),
+        highlight: e.isActive('highlight'),
+        codeBlock: e.isActive('codeBlock'),
+        link: e.isActive('link'),
+        linkHref: (e.getAttributes('link').href as string | undefined) ?? '',
+        taskList: e.isActive('taskList'),
+        // T2.2：表格上下文（光标在表格内才允许行/列操作）
+        inTable: e.isActive('table'),
+        canAddRow: e.can().addRowAfter(),
+        canDeleteRow: e.can().deleteRow(),
+        canAddCol: e.can().addColumnAfter(),
+        canDeleteCol: e.can().deleteColumn(),
+        canToggleHeaderRow: e.can().toggleHeaderRow(),
+        canDeleteTable: e.can().deleteTable(),
         h1: e.isActive('heading', { level: 1 }),
         h2: e.isActive('heading', { level: 2 }),
         h3: e.isActive('heading', { level: 3 }),
@@ -123,6 +146,19 @@ function Toolbar({ editor, editable, docId }: { editor: Editor | null; editable:
 
   if (editor === null || s === null) return null
 
+  const applyLink = () => {
+    if (linkEdit === null) return
+    const raw = linkEdit.url.trim()
+    if (raw === '') {
+      // 清空 = 移除链接（保留选区文本）
+      editor.chain().focus().extendMarkRange('link').unsetLink().run()
+    } else {
+      const href = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(raw) ? raw : `https://${raw}`
+      editor.chain().focus().extendMarkRange('link').setLink({ href }).run()
+    }
+    setLinkEdit(null)
+  }
+
   interface TbItem {
     key: string
     label?: string
@@ -137,6 +173,8 @@ function Toolbar({ editor, editable, docId }: { editor: Editor | null; editable:
     { key: 'bold', label: 'B', active: s.bold, onClick: () => editor.chain().focus().toggleBold().run() },
     { key: 'italic', label: 'I', active: s.italic, onClick: () => editor.chain().focus().toggleItalic().run() },
     { key: 'strike', label: 'S', active: s.strike, onClick: () => editor.chain().focus().toggleStrike().run() },
+    { key: 'underline', label: 'U', active: s.underline, onClick: () => editor.chain().focus().toggleUnderline().run() },
+    { key: 'highlight', label: '高亮', active: s.highlight, onClick: () => editor.chain().focus().toggleHighlight().run() },
     { key: 'sep-2' },
     { key: 'h1', label: 'H1', active: s.h1, onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run() },
     { key: 'h2', label: 'H2', active: s.h2, onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
@@ -144,8 +182,25 @@ function Toolbar({ editor, editable, docId }: { editor: Editor | null; editable:
     { key: 'sep-3' },
     { key: 'bulletList', label: '• 列表', active: s.bulletList, onClick: () => editor.chain().focus().toggleBulletList().run() },
     { key: 'orderedList', label: '1. 列表', active: s.orderedList, onClick: () => editor.chain().focus().toggleOrderedList().run() },
+    { key: 'taskList', label: '☑ 任务', active: s.taskList, onClick: () => editor.chain().focus().toggleTaskList().run() },
     { key: 'sep-4' },
     { key: 'blockquote', label: '引用', active: s.blockquote, onClick: () => editor.chain().focus().toggleBlockquote().run() },
+    { key: 'codeBlock', label: '代码块', active: s.codeBlock, onClick: () => editor.chain().focus().toggleCodeBlock().run() },
+    { key: 'horizontalRule', label: '分割线', onClick: () => editor.chain().focus().setHorizontalRule().run() },
+    {
+      key: 'link',
+      label: '链接',
+      active: s.link,
+      onClick: () => setLinkEdit({ url: s.linkHref }),
+    },
+    { key: 'sep-5' },
+    { key: 'tableInsert', label: '插表', disabled: !editable, onClick: () => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
+    { key: 'tableAddRow', label: '+行', disabled: !s.canAddRow, onClick: () => editor.chain().focus().addRowAfter().run() },
+    { key: 'tableDeleteRow', label: '-行', disabled: !s.canDeleteRow, onClick: () => editor.chain().focus().deleteRow().run() },
+    { key: 'tableAddCol', label: '+列', disabled: !s.canAddCol, onClick: () => editor.chain().focus().addColumnAfter().run() },
+    { key: 'tableDeleteCol', label: '-列', disabled: !s.canDeleteCol, onClick: () => editor.chain().focus().deleteColumn().run() },
+    { key: 'tableHeader', label: '表头', disabled: !s.canToggleHeaderRow, active: s.inTable, onClick: () => editor.chain().focus().toggleHeaderRow().run() },
+    { key: 'tableDelete', label: '删表', disabled: !s.canDeleteTable, onClick: () => editor.chain().focus().deleteTable().run() },
   ]
 
   return (
@@ -183,6 +238,28 @@ function Toolbar({ editor, editable, docId }: { editor: Editor | null; editable:
           }}
         />
       </label>
+      {/* T2.2：链接编辑浮层（锚定工具栏左下） */}
+      {linkEdit !== null && (
+        <div className="tb-popover">
+          <input
+            className="tb-popover-input"
+            value={linkEdit.url}
+            autoFocus
+            placeholder="https://example.com"
+            onChange={(e) => setLinkEdit({ url: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') applyLink()
+              if (e.key === 'Escape') setLinkEdit(null)
+            }}
+          />
+          <button type="button" className="btn btn-primary tb-popover-btn" onClick={applyLink}>
+            确定
+          </button>
+          <button type="button" className="btn tb-popover-btn" onClick={() => setLinkEdit(null)}>
+            取消
+          </button>
+        </div>
+      )}
     </div>
   )
 }
