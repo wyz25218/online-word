@@ -1,6 +1,8 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common'
 import { permissionOf, type AuthResult } from '@online-word/shared'
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js'
+import { CommentsService } from '../comments/comments.service.js'
+import { ExtractedPayloadSchema, type ExtractedPayload } from '../comments/comments.dto.js'
 import { PermissionsService } from '../permissions/permissions.service.js'
 import { UsersService } from '../users/users.service.js'
 import { InternalApiKeyGuard } from './internal-key.guard.js'
@@ -31,6 +33,7 @@ export class InternalController {
   constructor(
     private readonly permissions: PermissionsService,
     private readonly users: UsersService,
+    private readonly comments: CommentsService,
   ) {}
 
   /** 网关验权：查用户在文档中的角色 → 映射网关写权限 */
@@ -57,5 +60,20 @@ export class InternalController {
       },
       ttlMs: MEMBERSHIP_TTL_MS,
     }
+  }
+
+  /**
+   * T2.3 评论抽取回写（docs/04 §6）：collab 网关把 Y.Doc comments 命名空间的线程快照
+   * 差量 upsert 到 comments 表（写表动作只允许 server 执行）。全量幂等：可安全重放。
+   */
+  @Post('docs/:docId/extracted')
+  @HttpCode(HttpStatus.OK)
+  async extracted(
+    @Param('docId', new ZodValidationPipe(InternalDocIdSchema)) docId: string,
+    @Body(new ZodValidationPipe(ExtractedPayloadSchema)) payload: ExtractedPayload,
+  ): Promise<{ upserted: number; deleted: number }> {
+    const result = await this.comments.upsertThreads(docId, payload)
+    console.log(`[internal] extracted docId=${docId} upserted=${result.upserted} deleted=${result.deleted}`)
+    return result
   }
 }

@@ -15,6 +15,7 @@ import type { Editor } from '@tiptap/core'
 import type { EditorView } from '@tiptap/pm/view'
 import type { CollabHandles } from './useCollabDoc'
 import { retryUpload, startImageUploads } from '../uploader'
+import { CommentMark } from '../extensions/comment-mark'
 
 // T2.2：代码块语法高亮引擎（common = 常用 37 种语言子集，避免全量 highlight.js 体积）
 const lowlight = createLowlight(common)
@@ -80,6 +81,8 @@ export function useTiptapEditor(
       Highlight,
       // T2.2：代码块语法高亮（同名节点替换 StarterKit 的普通 CodeBlock）
       CodeBlockLowlight.configure({ lowlight }),
+      // T2.3：评论锚点 mark（excludes:'' 允许多线程重叠；锚点随 CRDT 跟随文本）
+      CommentMark,
       Collaboration.configure({
         document: handles.ydoc,
         field: 'prosemirror',

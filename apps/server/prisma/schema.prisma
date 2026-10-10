@@ -29,6 +29,7 @@ model Doc {
 
   members     DocMember[]
   attachments Attachment[]
+  comments    Comment[]
 
   @@index([ownerId], map: "idx_docs_owner")
   @@map("docs")
@@ -61,4 +62,21 @@ model Attachment {
 
   @@index([docId], map: "idx_attachments_doc")
   @@map("attachments")
+}
+
+// T2.3：评论冗余（权威数据在 Y.Doc 的 comments 命名空间，由 collab 经内部接口抽取回写；
+// 供跨文档查询/通知/未读数使用，docs/03 §2 DDL）
+model Comment {
+  id        String   @id @db.Uuid // 即 Y 侧评论 id（线程 id = 首评 id），回写幂等 upsert 依据
+  docId     String   @map("doc_id") @db.Uuid
+  threadId  String   @map("thread_id") @db.Uuid
+  authorId  String   @map("author_id") @db.Uuid
+  body      String
+  resolved  Boolean  @default(false) // 线程级状态冗余到该线程每行
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  doc Doc @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  @@index([docId, createdAt], map: "idx_comments_doc") // 未读部分索引在手写迁移 SQL 中（Prisma 不支持 WHERE）
+  @@map("comments")
 }

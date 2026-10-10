@@ -1,6 +1,7 @@
 import { jwtVerify, type JWTPayload } from 'jose'
 import type { AuthResult } from '@online-word/shared'
 import { redis } from './redis.client.js'
+import { INTERNAL_API_KEY, INTERNAL_URL } from './env.js'
 
 /**
  * 鉴权服务（M1-T1.5 真实实现，docs/09 T1.5）：
@@ -21,8 +22,6 @@ function requireEnv(key: string): string {
 }
 
 const collabSecret = new TextEncoder().encode(requireEnv('JWT_COLLAB_SECRET'))
-const INTERNAL_URL = requireEnv('SERVER_INTERNAL_URL').replace(/\/+$/, '')
-const INTERNAL_API_KEY = requireEnv('INTERNAL_API_KEY')
 const MEMBERSHIP_TIMEOUT_MS = 3_000
 
 interface CollabClaims extends JWTPayload {

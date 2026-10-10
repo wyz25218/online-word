@@ -3,6 +3,8 @@ import { Server } from '@hocuspocus/server'
 import type { AwarenessUser, CollabContext } from '@online-word/shared'
 import { startControlSubscriber } from './control.subscriber.js'
 import { verifyToken } from './auth.service.js'
+import { affectsProsemirror, syncUpdateOf } from './comment-guard.js'
+import { flushCommentsExtract, scheduleCommentsExtract } from './extract.js'
 import { compactOnUnload, loadDocState, persistChange } from './persistence.js'
 import { isRoomReadOnly } from './room-state.js'
 import { closeRedis } from './redis.client.js'
@@ -32,8 +34,10 @@ const server = new Server<CollabContext>({
 
   /**
    * T1.5 真实鉴权：JWT 验签（use=collab、绑定 docId）+ server membership 内部接口（Redis 缓存 60s）。
-   * viewer/commenter → 连接级只读（Hocuspocus 丢弃该连接的写消息）；
-   * T1.4 房间写路径降级时，即使 editor 也以只读建立。
+   * viewer → 连接级只读（Hocuspocus 丢弃该连接的写消息）；
+   * T2.3：commenter → 保持连接可写，由 beforeHandleMessage 按命名空间粒度过滤
+   * （仅放行 comments 通道，正文写入直接断连）；
+   * T1.4 房间写路径降级时，任何角色都以只读建立。
    * 返回的对象会被合并到 connection context（CollabContext）。
    */
   async onAuthenticate({ token, documentName, connectionConfig }): Promise<Partial<CollabContext>> {
@@ -41,7 +45,7 @@ const server = new Server<CollabContext>({
     if (!auth.ok || auth.permission === 'none') {
       throw new Error('permission denied')
     }
-    if (auth.permission === 'read') {
+    if (auth.permission === 'read' && auth.user.role !== 'commenter') {
       connectionConfig.readOnly = true
     }
     if (isRoomReadOnly(documentName)) {
@@ -52,6 +56,23 @@ const server = new Server<CollabContext>({
       `[auth] ok room=${documentName} user=${auth.user.userId} role=${auth.user.role} permission=${auth.permission}${connectionConfig.readOnly ? ' (readOnly)' : ''}`,
     )
     return { user: auth.user, permission: auth.permission }
+  },
+
+  /**
+   * T2.3 commenter 命名空间级写权限（docs/04 §3/§6）：
+   * 仅对 commenter 连接生效——把携带写入内容的 SyncStep2/Update 消息应用到房间文档的
+   * 影子副本上，若正文（prosemirror 命名空间）可见内容发生变化则拒绝该消息。
+   * 拒绝方式为抛错：Hocuspocus 会关闭该连接（诚实客户端永不触发，等价踢出恶意客户端）。
+   * SyncStep1（请求 diff）与 Awareness 消息不携带写入内容，直接放行。
+   */
+  async beforeHandleMessage({ documentName, document, update, connection }) {
+    const user = connection?.context?.user as AwarenessUser | undefined
+    if (user?.role !== 'commenter') return
+    const writeUpdate = syncUpdateOf(update)
+    if (writeUpdate === null) return
+    if (!affectsProsemirror(document, writeUpdate)) return
+    console.error(`[guard] room=${documentName} commenter=${user.userId} 尝试写入正文，已拒收并断开`)
+    throw new Error('commenter cannot write to document body')
   },
 
   /**
@@ -75,6 +96,8 @@ const server = new Server<CollabContext>({
       console.error(`[persist] room=${documentName} 踢出在场连接以触发只读重连:`, err instanceof Error ? err.message : err)
       server.hocuspocus.closeConnections(documentName)
     }
+    // T2.3：评论抽取回写（防抖；线程快照未变化时内部自动跳过）
+    scheduleCommentsExtract(documentName, document)
   },
 
   /**
@@ -85,6 +108,8 @@ const server = new Server<CollabContext>({
    */
   async beforeUnloadDocument({ documentName, document }) {
     await compactOnUnload(documentName, document)
+    // T2.3：未回写的评论快照兜底落库（不走防抖）
+    await flushCommentsExtract(documentName)
   },
 
   async onListen({ port }) {

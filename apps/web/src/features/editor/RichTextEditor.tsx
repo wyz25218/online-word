@@ -6,6 +6,9 @@ import { roleAtLeast, type AwarenessUser } from '@online-word/shared'
 import { useCollabDoc, type CollabHandles } from './hooks/useCollabDoc'
 import type { CollabStore } from './collab.store'
 import { useTiptapEditor } from './hooks/useTiptapEditor'
+import { useComments } from './hooks/useComments'
+import { registerCommentResolvedDecorations } from './extensions/comment-decorations'
+import CommentsPanel from './CommentsPanel'
 import { startImageUploads } from './uploader'
 
 interface Props {
@@ -83,6 +86,10 @@ function EditorView({ handles, user, docId }: { handles: CollabHandles; user: Aw
   // T1.8：网关 scope 联动编辑态——降权（scope=readonly）立即置只读，恢复写权限后可继续编辑
   const authorizedScope = useStore(handles.store, (s) => s.authorizedScope)
   const editable = authorizedScope !== 'readonly' && roleAtLeast(user.role, 'editor')
+  // T2.3：评论（viewer 不可见评论入口；commenter+ 可见侧栏，创建锚点需 editor+）
+  const comments = useComments(handles.ydoc)
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
+  const showComments = roleAtLeast(user.role, 'commenter')
 
   useEffect(() => {
     if (editor === null) return
@@ -94,18 +101,62 @@ function EditorView({ handles, user, docId }: { handles: CollabHandles; user: Aw
     ;(window as unknown as { __owEditor?: Editor | null }).__owEditor = editor
   }, [editor])
 
+  // T2.3：resolved 线程的正文灰色 decoration（纯视图层，不改正文数据）
+  useEffect(() => {
+    if (editor === null) return
+    return registerCommentResolvedDecorations(editor, handles.ydoc)
+  }, [editor, handles.ydoc])
+
+  // 点击正文锚点 → 侧栏对应线程高亮（事件委托，不侵入 PM 插件）
+  const onBodyClick = (e: React.MouseEvent) => {
+    const el = (e.target as HTMLElement).closest('[data-thread-id]')
+    setActiveThreadId(el?.getAttribute('data-thread-id') ?? null)
+  }
+
+  /** 工具栏「评论」提交：写 comments 命名空间 + 正文打锚点（两事务由 CRDT 各自收敛） */
+  const createThread = (body: string) => {
+    if (editor === null || !editable) return
+    const threadId = crypto.randomUUID()
+    comments.pushThread({ id: threadId, authorId: user.userId, body, resolved: false, createdAt: Date.now() })
+    editor.chain().focus().setComment(threadId).run()
+    setActiveThreadId(threadId)
+  }
+
   return (
-    <div className="editor-body">
-      <Toolbar editor={editor} editable={editable} docId={docId} />
-      <EditorContent editor={editor} className="ProseMirror" />
+    <div className="editor-layout">
+      <div className="editor-body" onClick={onBodyClick}>
+        <Toolbar editor={editor} editable={editable} docId={docId} onCreateComment={createThread} />
+        <EditorContent editor={editor} className="ProseMirror" />
+      </div>
+      {editor !== null && showComments && (
+        <CommentsPanel
+          editor={editor}
+          user={user}
+          comments={comments}
+          activeThreadId={activeThreadId}
+          onSelectThread={setActiveThreadId}
+        />
+      )}
     </div>
   )
 }
 
 /** 工具栏按钮组 + 字数统计；active/disabled 态经 useEditorState 选择器按需订阅（docs/05 §5） */
-function Toolbar({ editor, editable, docId }: { editor: Editor | null; editable: boolean; docId: string }) {
+function Toolbar({
+  editor,
+  editable,
+  docId,
+  onCreateComment,
+}: {
+  editor: Editor | null
+  editable: boolean
+  docId: string
+  onCreateComment: (body: string) => void
+}) {
   // T2.2：链接编辑浮层（不用 window.prompt，自动化测试与用户体验都更可控）
   const [linkEdit, setLinkEdit] = useState<{ url: string } | null>(null)
+  // T2.3：评论输入浮层（对当前选区创建线程）
+  const [commentEdit, setCommentEdit] = useState<{ body: string } | null>(null)
 
   const s = useEditorState({
     editor,
@@ -123,6 +174,8 @@ function Toolbar({ editor, editable, docId }: { editor: Editor | null; editable:
         link: e.isActive('link'),
         linkHref: (e.getAttributes('link').href as string | undefined) ?? '',
         taskList: e.isActive('taskList'),
+        // T2.3：评论（需非空选区，对选区文字打锚点）
+        hasSelection: !e.state.selection.empty,
         // T2.2：表格上下文（光标在表格内才允许行/列操作）
         inTable: e.isActive('table'),
         canAddRow: e.can().addRowAfter(),
@@ -193,6 +246,13 @@ function Toolbar({ editor, editable, docId }: { editor: Editor | null; editable:
       active: s.link,
       onClick: () => setLinkEdit({ url: s.linkHref }),
     },
+    { key: 'sep-comment' },
+    {
+      key: 'comment',
+      label: '评论',
+      disabled: !s.hasSelection,
+      onClick: () => setCommentEdit({ body: '' }),
+    },
     { key: 'sep-5' },
     { key: 'tableInsert', label: '插表', disabled: !editable, onClick: () => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
     { key: 'tableAddRow', label: '+行', disabled: !s.canAddRow, onClick: () => editor.chain().focus().addRowAfter().run() },
@@ -256,6 +316,44 @@ function Toolbar({ editor, editable, docId }: { editor: Editor | null; editable:
             确定
           </button>
           <button type="button" className="btn tb-popover-btn" onClick={() => setLinkEdit(null)}>
+            取消
+          </button>
+        </div>
+      )}
+      {/* T2.3：评论输入浮层（对当前选区创建线程） */}
+      {commentEdit !== null && (
+        <div className="tb-popover tb-popover-comment">
+          <input
+            className="tb-popover-input"
+            value={commentEdit.body}
+            autoFocus
+            placeholder="输入评论内容，Enter 提交"
+            onChange={(e) => setCommentEdit({ body: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                const body = commentEdit.body.trim()
+                if (body !== '') {
+                  onCreateComment(body)
+                  setCommentEdit(null)
+                }
+              }
+              if (e.key === 'Escape') setCommentEdit(null)
+            }}
+          />
+          <button
+            type="button"
+            className="btn btn-primary tb-popover-btn"
+            onClick={() => {
+              const body = commentEdit.body.trim()
+              if (body !== '') {
+                onCreateComment(body)
+                setCommentEdit(null)
+              }
+            }}
+          >
+            提交
+          </button>
+          <button type="button" className="btn tb-popover-btn" onClick={() => setCommentEdit(null)}>
             取消
           </button>
         </div>

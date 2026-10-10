@@ -119,7 +119,7 @@
 
 - [x] **T2.1 图片/附件（3d）**：server 签名直传（MinIO）+ attachments 表；web 三处拦截（粘贴/拖拽/工具栏）统一上传器；失败占位与重试；节点仅存 URL+尺寸；C16 用例
 - [x] **T2.2 富格式扩展（3d）✅ 2026-10-10**：Table 全家桶、TaskList、Link、Underline、Highlight、HorizontalRule、CodeBlockLowlight；表格协同用例 C08 专项
-- [ ] **T2.3 评论（4d）**：自研 CommentMark 扩展（threadId）；`comments` 顶层 Y.Array 命名空间；commenter 命名空间级权限；侧栏线程 UI；网关抽取 → server `/internal/extracted` 回写 comments 表；resolved 折叠；C09 用例
+- [x] **T2.3 评论（4d）**：自研 CommentMark 扩展（threadId）；`comments` 顶层 Y.Array 命名空间；commenter 命名空间级权限；侧栏线程 UI；网关抽取 → server `/internal/extracted` 回写 comments 表；resolved 折叠；C09 用例 ✅ 2026-10-10
 - [ ] **T2.4 版本历史（3d）**：手动 + 10 分钟定时 revision；时间轴 UI；只读预览；恢复走"整体替换 update"（04 文档第 7 节），禁止清空重建；C15 用例
 - [ ] **T2.5 分享与权限面板（2d）**：邀请/改角色/移除；链接四档 + 随机 token；匿名只读端到端；C17 用例
 - [ ] **T2.6 docx 导入导出（3d）**：LibreOffice headless 容器；异步任务队列 + MinIO 临时签名 URL；导入生成新文档初始快照；20 个真实 Word 样例评审
@@ -315,4 +315,13 @@
   - **测试环境结论（非产品 bug）**：①WebView 后台标签的 WS 被冻结（provider status 仍显示"已连接"但数据不流动，同刻仅前台标签网络活着）——此前"并发种子未同步"由此产生，Node WS 客户端直连 collab 模拟协同用户绕开此限制（hocuspocus v4 手工解码：Auth 回复 `varString(docName)+varUint(2)+varUint(sub=2=Authenticated)+varString(scope)`，**M0 记录把 sub=2 误记为 PermissionDenied**，实际 1=Permission/2=Authenticated）；②WebView 非前台时 contenteditable 无法聚焦（pm.focus() 后 activeElement 仍是 BODY）→ execCommand 失效；③posAtCoords 依赖视口/滚动状态，刷新后不可靠——定位单元格应遍历 `editor.state.doc` 树计算绝对 pos。
   - 单标签功能全 PASS（DOM 属性级取证）：任务列表（data-checked 切换）、代码块（pre>code.lowlight 高亮类）、分割线（hr）、链接全流程（set→isActive→改 href→unset 保留文本）、表格全家桶（增删行列/表头行/删表，rows/cols 读数精确）、U/高亮（DOM `<u>`/`<mark>` + active + toggle 移除）、undo/redo（T1.9 机制对表格操作同样生效）。
   - 验证插曲：写操作失败必须先读快照验证再重试（防重复插入）——两次"页面被刷新"打断加行，实际副作用已生效（B 端 `recv update rows=4`）；"在线 N 人"不能证明协同正常（同账号多标签被 userId 去重）。
+  - `pnpm -r typecheck` exit 0；临时验证脚本已清理。
+- 2026-10-10 **T2.3 完成**。
+  - 数据通道：`comments` 顶层 Y.Array<Y.Map>（id/authorId/body/resolved/createdAt/replies[]，shared 固化 `COMMENTS_NAMESPACE` 三端共认 + toCommentThreads 防御式归一，坏数据回落不抛错）；正文锚点自研 CommentMark（excludes:'' 允许不同线程重叠、inclusive:false 输入不延续、data-thread-id attr，removeCommand 按 Mark 实例精确移除）。
+  - **C09 锚点稳定性全 PASS**：前后插入（mark 包住原文字、前缀不进 mark）、拆段（mark 一分为二、threadId 一致不丢）、删部分（Y 层 mark 范围缩至剩余文字"演练"）、删全部（正文 mark 消失、线程卡转"（上下文已删除）"不丢）；**刷新后（IndexedDB+服务端）线程与删除态完整恢复**，正文锚点三操作全部不漂移。
+  - **resolved 灰色 = 纯视图层 decoration**（不改正文数据，commenter 的 resolve 不触碰正文命名空间；threads.observeDeep → setMeta 重建）；**decoration 的 .comment-resolved span 渲染在 mark span 内层**（y-prosemirror mark 优先占外层元素），CSS 用 `.comment-mark:has(.comment-resolved)` 从外层覆盖视觉（backgroundColor/borderBottomColor/color 三值 computed style 取证）。
+  - **commenter 命名空间级权限（服务端日志实锤）**：beforeHandleMessage 影子法（update 应用到房间副本→比对 prosemirror fragment toString）——carol 写正文 `[guard] 拒收` + `closing connection … commenter cannot write to document body` + `[disconnect]`，重连核对服务端正文无入侵文字；写 comments 放行且回写落库。**Node 22 原生 WebSocket 客户端对服务端 close 帧的 onclose 可能不触发**（carol 脚本 5s race 超时误报"未断连"），断连结论以服务端日志为准。
+  - **Y 层结构实锤（探针取证）**：PM block = XmlElement 且唯一 child 是单个 XmlText（内容聚合）；**mark 在 Y 层是 ContentFormat item**（key=`comment--<hash>` + value={threadId} 起、value=null 止，XmlText.toString 把它渲染成 `<comment--xxx>` 标签形态）；XmlText.forEach 是 Map 语义（遍历 attributes），children 遍历须用 toArray/_start 链。
+  - 网关抽取回写：onChange 防抖 2s + beforeUnloadDocument 兜底 flush；线程快照 JSON 未变即跳过（正文打字零请求）、in-flight dirty 补跑、5s 超时不重试；server `/internal/docs/:id/extracted`（x-internal-key + zod 校验）事务内差量 upsert（thread/reply 拆行、resolved 冗余到每行、消失行删除、doc.updateMany 防 P2025）——**comments 表 3 行与 Y 端完全一致**（alice 首评 + bob Node 端回复 + carol 纯评论）；GET /docs/:id/comments 返回一致。
+  - DB：comments 表 + idx_comments_doc + 部分索引 idx_comments_unresolved（Prisma 不支持 WHERE，手写 migration.sql + db execute --file + migrate resolve）。
   - `pnpm -r typecheck` exit 0；临时验证脚本已清理。
