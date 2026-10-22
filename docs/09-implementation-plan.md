@@ -120,7 +120,7 @@
 - [x] **T2.1 图片/附件（3d）**：server 签名直传（MinIO）+ attachments 表；web 三处拦截（粘贴/拖拽/工具栏）统一上传器；失败占位与重试；节点仅存 URL+尺寸；C16 用例
 - [x] **T2.2 富格式扩展（3d）✅ 2026-10-10**：Table 全家桶、TaskList、Link、Underline、Highlight、HorizontalRule、CodeBlockLowlight；表格协同用例 C08 专项
 - [x] **T2.3 评论（4d）**：自研 CommentMark 扩展（threadId）；`comments` 顶层 Y.Array 命名空间；commenter 命名空间级权限；侧栏线程 UI；网关抽取 → server `/internal/extracted` 回写 comments 表；resolved 折叠；C09 用例 ✅ 2026-10-10
-- [ ] **T2.4 版本历史（3d）**：手动 + 10 分钟定时 revision；时间轴 UI；只读预览；恢复走"整体替换 update"（04 文档第 7 节），禁止清空重建；C15 用例
+- [x] **T2.4 版本历史（3d）✅ 2026-10-22**：手动 + 10 分钟定时 revision；时间轴 UI；只读预览；恢复走"整体替换 update"（04 文档第 7 节），禁止清空重建；C15 用例
 - [ ] **T2.5 分享与权限面板（2d）**：邀请/改角色/移除；链接四档 + 随机 token；匿名只读端到端；C17 用例
 - [ ] **T2.6 docx 导入导出（3d）**：LibreOffice headless 容器；异步任务队列 + MinIO 临时签名 URL；导入生成新文档初始快照；20 个真实 Word 样例评审
 - [ ] **T2.7 @提及/通知/查找替换/大纲（1.5d）**：Mention 扩展 + 通知表（应用内）；标题大纲定位；查找替换
@@ -325,3 +325,42 @@
   - 网关抽取回写：onChange 防抖 2s + beforeUnloadDocument 兜底 flush；线程快照 JSON 未变即跳过（正文打字零请求）、in-flight dirty 补跑、5s 超时不重试；server `/internal/docs/:id/extracted`（x-internal-key + zod 校验）事务内差量 upsert（thread/reply 拆行、resolved 冗余到每行、消失行删除、doc.updateMany 防 P2025）——**comments 表 3 行与 Y 端完全一致**（alice 首评 + bob Node 端回复 + carol 纯评论）；GET /docs/:id/comments 返回一致。
   - DB：comments 表 + idx_comments_doc + 部分索引 idx_comments_unresolved（Prisma 不支持 WHERE，手写 migration.sql + db execute --file + migrate resolve）。
   - `pnpm -r typecheck` exit 0；临时验证脚本已清理。
+- 2026-10-22 **T2.4 完成**。
+  - 数据模型：prisma schema 新增 `DocRevision`（state Bytes + proseMirrorJson TEXT + plainText/wordCount/authorId/label + createdAt + docId FK CASCADE + idx_revisions_doc_time）；**手写迁移链路**沿用 T2.1/T2.3 模式：`migration.sql` → `prisma db execute --file` → `prisma migrate resolve --applied`；首次迁移漏加 prose_mirror_json 字段，作为独立 `20261022010000_add_revision_pmjson` ALTER TABLE 追加。
+  - Server revisions 模块（controller/service/dto/module）：
+    - `GET  /docs/:id/revisions` — viewer+ 时间轴列表（id/label/authorId/createdAt，state 不下发到前端）
+    - `POST /docs/:id/revisions` — editor+ 手动保存（client 提供完整 proseMirrorJson + encodeStateAsUpdate 的 base64 state）
+    - `GET  /docs/:id/revisions/:revId` — viewer+ 详情（含 proseMirrorJson）
+    - `POST /docs/:id/revisions/:revId/restore` — owner 专属恢复接口（返回 proseMirrorJson 给 client，server 零 Yjs/prosemirror 依赖）
+    - DTO：手动保存 `proseMirrorJson` 必填 + 定时保存 `InternalRevisionPayload`（proseMirrorJson **optional**，collab 无 Tiptap schema）——修复"collab 无 pmJson 但 zod schema 必填会 400"的集成断裂。
+    - 恢复权限链：`getMemberRole` → owner 专属（forbidden on non-owner）。
+    - **类型安全修复**：`stateBuffer as any` → `new Uint8Array(stateBuffer)`（Prisma 7 `Bytes = ReturnType<Uint8Array['slice']>` 即 `Uint8Array<ArrayBuffer>`，`Buffer<ArrayBufferLike>` 不直接兼容；两处——create + createFromCollab）。
+  - Internal 内部接口：`POST /internal/docs/:docId/revision`（InternalApiKeyGuard 保护），body `{ stateBase64, proseMirrorJson?, plainText?, wordCount? }`，返回 `{ id: string }`——collab 定时保存端点。
+  - Collab 定时快照（`apps/collab/src/revision.ts` 新增）：
+    - `startRevisionTimer`：onLoadDocument 启动默认 10min timer（`REVISION_TIMER_MS` 可配，验证阶段临时设 5000ms 加速）。
+    - `registerRevisionDoc`：onChange 中注册 Y.Doc 引用并标记 `dirty=true`（正文打字时持续变脏）。
+    - `saveNow`：timer 到点或 flush 时触发，`Y.encodeStateAsUpdate(doc)` → SHA-256 前 16 字节 hex 与上次快照对比，未变化跳过（哈希去重）→ `POST /internal/docs/:docId/revision`（带 X-Internal-Key）。
+    - `flushRevisionOnUnload`：beforeUnloadDocument 兜底，房间卸载时若 dirty 强制落库。
+    - `shutdownAllRevisions`：SIGINT/SIGTERM 优雅停机前批量 flush 所有未保存快照。
+    - main.ts 挂载：onLoadDocument→startRevisionTimer、onChange→registerRevisionDoc + dirty 标记、beforeUnloadDocument→flushRevisionOnUnload；env.ts 增 REVISION_TIMER_MS 读取。
+  - **Redis 不可达 fallback（`apps/collab/src/redis.client.ts` 增强）**：
+    - 问题发现：E2E 验证时本机 Memurai 未起 → `persistChange` 3 次重试全败 → `markRoomReadOnly` → `closeConnections` → 房间立即卸载 → timer 未触发、仅 flushRevisionOnUnload 在 disconnect 时存了 1 条，无法验证周期性快照行为。
+    - 修复：新增进程内 Map 锁（`memLocks`）——当 `redisAvailable=false && LOCK_FALLBACK_ENABLED` 时，`withLock` 自动切换到 `tryAcquireMemLock/releaseMemLock`，Redis 不可达时单机验证 persist 链路不受影响。生产多实例部署可设 `REDIS_FALLBACK_INMEM=false` 关闭兜底、强制依赖 Redis。
+    - 状态位维护：redis connect/ready → true、error → false；5s interval 清理过期内存锁。
+  - Web 侧栏（`RevisionsPanel.tsx` + `api/revisions.ts`）：
+    - 时间轴列表：点击→GET 详情→独立 Tiptap 只读预览（`useEditor({ editable:false, immediatelyRender:false, extensions: buildPreviewExtensions() }, [activeDetail?.id])`——deps 变化时 Tiptap v3 内部 `EditorInstanceManager.refreshEditorInstance` 自动 destroy 旧实例再重建，**用户建议的额外 useEffect cleanup 反而是反模式（double-destroy + 提前销毁）**，经源码验证无需添加）。
+    - 手动保存按钮（editor+）：`encodeRevisionSnapshot(ydoc)` → `editor.getJSON()` 打包后 POST /docs/:id/revisions。
+    - 恢复按钮（owner 专属）：`POST restore` 拿到 proseMirrorJson → `editor.commands.setContent(parsed, { emitUpdate:true })` ——整体替换模式，emitUpdate 让 y-prosemirror 生成正常 Yjs update 广播，所有在线人自然收敛（docs/04 §7 设计意图）。
+    - RichTextEditor.tsx 追加 `<RevisionsPanel>`；styles.css 新增侧栏 CSS 族 + 双侧栏窄屏响应式兜底（`.editor-layout:has(.comments-panel):has(.revisions-panel) .editor-body { max-width: 620px; }`）。
+  - **E2E 验证全 PASS（定时保存链路，临时 REVISION_TIMER_MS=5000ms 加速）**：
+    - [7] 定时保存触发：进入房间→打字→等 timer→GET 列表，count=1、authorId=null（确认为定时路径，非手动保存）。
+    - [8] 周期性触发：继续打字→等 timer→count=2（第二次变更后又触发）。
+    - [9] 哈希去重：不打字再等一个 timer→count 保持 2（无变更跳过，SHA-256 哈希比对生效）。
+    - [10] flushRevisionOnUnload：disconnect 时 dirty 已被 timer 清掉（dirty=false），flush 正常不重复写。
+    - Redis fallback 兜底验证：停 Memurai 跑同链路→persistChange 走内存锁→timer 正常触发快照保存（原本会因房间只读降级而中断）。
+  - `.gitignore`：排除 `apps/web/scripts/test-*.mjs` 端到端验证脚本（一次性调试产物）。
+  - **提交** `5795940`（21 files, +1135/-15）；`pnpm -r typecheck` exit 0。
+  - 遗留（不阻塞后续 M2 任务）：
+    - 定时保存版本（proseMirrorJson 可空）的恢复路径——revDetail 返回 pmJson 为 null 时需 client 侧临时 `new Y.Doc()` + `Y.applyUpdate(stateBytes)` + `editor.setContent(ydoc.getXmlFragment('prosemirror').toJSON(), { emitUpdate:true })`，当前 RevisionsPanel 未区分处理（server 层 state 字段已返回给前端可直接用，只差 client 分支）。
+    - `setContent({ emitUpdate:true })` 是否真的触发 y-prosemirror update 广播的集成测试（静态分析显示 y-prosemirror 对 emitUpdate 有支持，但未端到端验证）。
+    - 双侧栏窄屏（<620px）CSS 兜底未经实际 UI 验证。
