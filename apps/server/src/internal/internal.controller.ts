@@ -1,9 +1,12 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common'
+import { z } from 'zod'
 import { permissionOf, type AuthResult } from '@online-word/shared'
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js'
 import { CommentsService } from '../comments/comments.service.js'
 import { ExtractedPayloadSchema, type ExtractedPayload } from '../comments/comments.dto.js'
 import { PermissionsService } from '../permissions/permissions.service.js'
+import { InternalRevisionPayloadSchema, type InternalRevisionPayload } from '../revisions/revisions.dto.js'
+import { RevisionsService } from '../revisions/revisions.service.js'
 import { UsersService } from '../users/users.service.js'
 import { InternalApiKeyGuard } from './internal-key.guard.js'
 import { InternalDocIdSchema, InternalUserIdSchema } from './internal.dto.js'
@@ -34,6 +37,7 @@ export class InternalController {
     private readonly permissions: PermissionsService,
     private readonly users: UsersService,
     private readonly comments: CommentsService,
+    private readonly revisions: RevisionsService,
   ) {}
 
   /** 网关验权：查用户在文档中的角色 → 映射网关写权限 */
@@ -75,5 +79,26 @@ export class InternalController {
     const result = await this.comments.upsertThreads(docId, payload)
     console.log(`[internal] extracted docId=${docId} upserted=${result.upserted} deleted=${result.deleted}`)
     return result
+  }
+
+  /**
+   * T2.4 collab 定时版本保存：网关每 10min 对有变更的活跃文档 encodeStateAsUpdate 后投递。
+   * body 格式：{ stateBase64, proseMirrorJson?, plainText?, wordCount? }
+   * 内部接口信任 collab 的身份（已由 InternalApiKeyGuard 保护），不做成员校验。
+   * proseMirrorJson 可空（collab 无 Tiptap schema，恢复时 client 侧 Y.applyUpdate 兜底）。
+   */
+  @Post('docs/:docId/revision')
+  @HttpCode(HttpStatus.CREATED)
+  async revision(
+    @Param('docId', new ZodValidationPipe(InternalDocIdSchema)) docId: string,
+    @Body(new ZodValidationPipe(z.object({
+      stateBase64: z.string().min(1),
+      ...InternalRevisionPayloadSchema.shape,
+    }))) body: { stateBase64: string } & InternalRevisionPayload,
+  ): Promise<{ id: string }> {
+    const stateBuf = Buffer.from(body.stateBase64, 'base64')
+    const rev = await this.revisions.createFromCollab(docId, stateBuf, body)
+    console.log(`[internal] revision docId=${docId} bytes=${stateBuf.byteLength} revId=${rev.id}`)
+    return { id: rev.id }
   }
 }

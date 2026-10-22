@@ -853,3 +853,143 @@ body {
 .tb-popover-comment .tb-popover-input {
   width: 220px;
 }
+
+/* ─────────── T2.4 版本历史侧栏 ─────────── */
+
+.revisions-panel {
+  width: 300px;
+  flex: 0 0 300px;
+  max-height: 78vh;
+  overflow-y: auto;
+  background: #f7f8fa;
+  border: 1px solid #e5e5e7;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.revisions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.revisions-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.revisions-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.revisions-error {
+  background: #fdecea;
+  color: #c73e1d;
+  border: 1px solid #f5c2bb;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+}
+
+.revisions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.revisions-empty {
+  font-size: 12.5px;
+  color: #8a8f99;
+  line-height: 1.6;
+  text-align: center;
+  padding: 12px 0;
+}
+
+.rev-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #e5e5e7;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.rev-row:hover:not(:disabled) {
+  border-color: #c9ccd1;
+}
+
+.rev-row.active {
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.15);
+  background: #f4f8fd;
+}
+
+.rev-time {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #1d1d1f;
+}
+
+.rev-meta {
+  font-size: 11.5px;
+  color: #8a8f99;
+}
+
+.revision-preview {
+  border-top: 1px solid #e5e5e7;
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.revision-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.revision-preview-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d1d1f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.revision-preview-body {
+  max-height: 40vh;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e5e5e7;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.revision-preview-content.ProseMirror {
+  padding: 0;
+  box-shadow: none;
+  min-height: auto;
+  max-width: none;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* 同时渲染评论 + 版本两个侧栏时的布局兜底：侧栏间距缩小，正文仍居中 */
+.editor-layout:has(.comments-panel):has(.revisions-panel) .editor-body {
+  max-width: 620px;
+}

@@ -39,3 +39,6 @@ data/
 
 # 本机基础设施（原生 Windows 安装的 Redis/Memurai 二进制与数据，不入库）
 .infra/
+
+# 端到端验证脚本（一次性调试产物，不入库）
+apps/web/scripts/test-*.mjs

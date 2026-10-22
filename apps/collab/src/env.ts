@@ -18,6 +18,21 @@ function requireEnv(key: string): string {
   return value
 }
 
+function getOptionalInt(key: string, fallback: number): number {
+  const v = process.env[key]
+  if (v === undefined || v === '') return fallback
+  const n = parseInt(v, 10)
+  if (Number.isNaN(n) || n <= 0) return fallback
+  return n
+}
+
 /** server 内部接口基地址与密钥（membership 验权 / 评论抽取回写共用） */
 export const INTERNAL_URL = requireEnv('SERVER_INTERNAL_URL').replace(/\/+$/, '')
 export const INTERNAL_API_KEY = requireEnv('INTERNAL_API_KEY')
+
+/**
+ * T2.4 定时版本保存间隔（毫秒）。
+ * 默认 10min（600000）；本地验证可设 5000 加速。
+ */
+export const REVISION_TIMER_MS = getOptionalInt('REVISION_TIMER_MS', 10 * 60 * 1_000)
+

@@ -1,10 +1,12 @@
 import './env.js'
 import { Server } from '@hocuspocus/server'
 import type { AwarenessUser, CollabContext } from '@online-word/shared'
+import { isDocUuid } from './db.client.js'
 import { startControlSubscriber } from './control.subscriber.js'
 import { verifyToken } from './auth.service.js'
 import { affectsProsemirror, syncUpdateOf } from './comment-guard.js'
 import { flushCommentsExtract, scheduleCommentsExtract } from './extract.js'
+import { flushRevisionOnUnload, registerRevisionDoc, shutdownAllRevisions, startRevisionTimer } from './revision.js'
 import { compactOnUnload, loadDocState, persistChange } from './persistence.js'
 import { isRoomReadOnly } from './room-state.js'
 import { closeRedis } from './redis.client.js'
@@ -78,9 +80,13 @@ const server = new Server<CollabContext>({
   /**
    * T1.3 持久化读取协议（docs/03 §3）：
    * 快照 + 增量回放到房间 Y.Doc；与客户端的差异由 y 同步协议（状态向量）处理。
+   * T2.4：启动该房间的 10min 定时版本保存计时器。
    */
   async onLoadDocument({ documentName, document }) {
     await loadDocState(documentName, document)
+    if (isDocUuid(documentName)) {
+      startRevisionTimer(documentName)
+    }
   },
 
   /**
@@ -98,6 +104,8 @@ const server = new Server<CollabContext>({
     }
     // T2.3：评论抽取回写（防抖；线程快照未变化时内部自动跳过）
     scheduleCommentsExtract(documentName, document)
+    // T2.4：注册 Y.Doc + 标记该房间"有变更"，10min timer 触发时会存一条版本快照
+    registerRevisionDoc(documentName, document)
   },
 
   /**
@@ -110,6 +118,10 @@ const server = new Server<CollabContext>({
     await compactOnUnload(documentName, document)
     // T2.3：未回写的评论快照兜底落库（不走防抖）
     await flushCommentsExtract(documentName)
+    // T2.4：房间卸载时兜底保存一条（如果有变更），并清理 interval + Map 引用
+    if (isDocUuid(documentName)) {
+      await flushRevisionOnUnload(documentName)
+    }
   },
 
   async onListen({ port }) {
@@ -140,6 +152,7 @@ const controlSub = startControlSubscriber(process.env.REDIS_URL ?? 'redis://loca
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     console.log(`[collab] ${signal} received, shutting down`)
+    shutdownAllRevisions() // T2.4：清理所有 revision interval
     controlSub.disconnect()
     void closeRedis().then(() => process.exit(0))
   })

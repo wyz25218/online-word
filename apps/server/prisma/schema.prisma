@@ -30,6 +30,7 @@ model Doc {
   members     DocMember[]
   attachments Attachment[]
   comments    Comment[]
+  revisions   DocRevision[]
 
   @@index([ownerId], map: "idx_docs_owner")
   @@map("docs")
@@ -79,4 +80,26 @@ model Comment {
 
   @@index([docId, createdAt], map: "idx_comments_doc") // 未读部分索引在手写迁移 SQL 中（Prisma 不支持 WHERE）
   @@map("comments")
+}
+
+// T2.4：版本历史（手动保存 + collab 10min 定时快照）。
+// 权威数据：state 为完整 Y.Doc 二进制状态（encodeStateAsUpdate）；
+// plainText/wordCount/label 为冗余，供列表查询与 UI 展示。
+// authorId 手动保存时有值，定时保存为 null。
+// 恢复走 client 驱动：GET revision state → Y.applyUpdate 到临时 doc → setContent 整体替换。
+model DocRevision {
+  id               String   @id @default(uuid()) @db.Uuid
+  docId            String   @map("doc_id") @db.Uuid
+  state            Bytes    // Y.Doc 完整状态（encodeStateAsUpdate），权威数据
+  proseMirrorJson  String   @map("prose_mirror_json") // Tiptap ProseMirror JSON（恢复/预览的直接数据源）
+  plainText        String?  @map("plain_text")
+  wordCount        Int?     @map("word_count")
+  authorId         String?  @map("author_id") // 手动保存时的操作人；定时保存为空
+  label            String?
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  doc Doc @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  @@index([docId, createdAt], map: "idx_revisions_doc_time")
+  @@map("doc_revisions")
 }

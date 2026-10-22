@@ -9,6 +9,7 @@ import { useTiptapEditor } from './hooks/useTiptapEditor'
 import { useComments } from './hooks/useComments'
 import { registerCommentResolvedDecorations } from './extensions/comment-decorations'
 import CommentsPanel from './CommentsPanel'
+import RevisionsPanel from './RevisionsPanel'
 import { startImageUploads } from './uploader'
 
 interface Props {
@@ -135,6 +136,16 @@ function EditorView({ handles, user, docId }: { handles: CollabHandles; user: Aw
           comments={comments}
           activeThreadId={activeThreadId}
           onSelectThread={setActiveThreadId}
+        />
+      )}
+      {editor !== null && (
+        <RevisionsPanel
+          docId={docId}
+          user={user}
+          ydoc={handles.ydoc}
+          editor={editor}
+          editable={editable}
+          isOwner={user.role === 'owner'}
         />
       )}
     </div>
