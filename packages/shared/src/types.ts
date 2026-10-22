@@ -69,12 +69,14 @@ export type ServerSignal = { type: 'force-disconnect'; reason: string }
  * server → collab 的权限变更控制事件（Redis PUBLISH，docs/06 §2 权限与分享）。
  * collab 收到后断开目标用户在该文档的连接，迫使其重连并重新鉴权：
  * 被移除 → membership 查库拒绝（前端 denied）；降权 → 以 readonly 连接重建（前端只读提示）。
+ *
+ * 两种 action：
+ * - 'membership-changed'：指定 userId（被踢/降权），断开该 userId 的连接（T1.8）
+ * - 'share-mode-changed'：任意 userId，断开该房间下所有 'anon:' 前缀的匿名连接（T2.5，模式切回 private/org 时）
  */
-export interface CollabControlEvent {
-  docId: string
-  userId: string
-  action: 'membership-changed'
-}
+export type CollabControlEvent =
+  | { docId: string; userId: string; action: 'membership-changed' }
+  | { docId: string; userId?: string; action: 'share-mode-changed' }
 
 /** server → collab 控制频道名（collab 以 psubscribe collab:control:* 订阅全部房间） */
 export function collabControlChannel(docId: string): string {

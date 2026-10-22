@@ -100,6 +100,27 @@ export class AuthService {
     return { docId, token, expiresIn: this.collabTtl }
   }
 
+  /**
+   * T2.5 匿名分享链路：签发 sub='anon:<session>' 的 collab JWT。
+   * 带 linkToken claim——collab 网关通过它在 internal membership 接口查 share-link mode，
+   * 从而拿到 anyone_view/read / anyone_edit/write 的权限（模式随时变更可实时生效）。
+   */
+  async issueAnonymousCollabToken(params: {
+    anonymousId: string
+    docId: string
+    displayName: string
+    linkToken: string
+  }): Promise<CollabTokenResponse> {
+    const token = await new SignJWT({ use: 'collab', name: params.displayName, docId: params.docId, linkToken: params.linkToken })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(params.anonymousId) // 'anon:<session>'
+      .setJti(randomUUID())
+      .setIssuedAt()
+      .setExpirationTime(nowSec() + this.collabTtl)
+      .sign(this.collabKey)
+    return { docId: params.docId, token, expiresIn: this.collabTtl }
+  }
+
   async verifyAccess(token: string): Promise<AccessClaims> {
     const payload = await this.verifyJwt(token, this.accessKey)
     if (payload.use !== 'access' || typeof payload.sub !== 'string') {

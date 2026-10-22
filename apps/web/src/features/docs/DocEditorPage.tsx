@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getCollabToken, getDoc, type DocDetail } from '../../api/docs'
@@ -6,15 +6,19 @@ import { ApiError, getSession } from '../../api/client'
 import { colorForUser, type AwarenessUser } from '@online-word/shared'
 import RichTextEditor from '../editor/RichTextEditor'
 import { UserBadge } from './DocsListPage'
+import SharePanel from './SharePanel'
 
 /**
  * 编辑页：先查文档元数据与我的角色（无权限态绝不建 WS 连接），
  * 再挂载协同编辑器。WS token 由 getToken 回调按需获取：
  * 初始连接与断线重连共用该回调，token 过期时自动重新换取（T1.6 续签）。
+ *
+ * T2.5：owner 可点击头部「分享」按钮打开 SharePanel（成员管理 + 链接分享）。
  */
 export default function DocEditorPage() {
   const { id } = useParams<{ id: string }>()
   const user = getSession()!.user
+  const [showShare, setShowShare] = useState(false)
 
   const docQuery = useQuery({
     queryKey: ['doc', id],
@@ -71,6 +75,7 @@ export default function DocEditorPage() {
   }
 
   const doc: DocDetail = docQuery.data
+  const isOwner = doc.role === 'owner'
 
   return (
     <div className="app">
@@ -79,11 +84,17 @@ export default function DocEditorPage() {
           ← 文档列表
         </Link>
         <span className="app-title">{doc.title}</span>
+        {isOwner && (
+          <button className="btn btn-ghost" onClick={() => setShowShare(true)}>
+            🔗 分享
+          </button>
+        )}
         <UserBadge user={user} />
       </header>
       {tokenQuery.isPending && <LoadState text="正在建立协同连接…" />}
       {tokenQuery.isError && <DeniedState title="获取协同凭证失败" hint={(tokenQuery.error as Error).message} />}
       {tokenQuery.isSuccess && awarenessUser !== null && <RichTextEditor docId={id} user={awarenessUser} getToken={getToken} />}
+      {showShare && <SharePanel docId={id} currentUserId={user.userId} onClose={() => setShowShare(false)} />}
     </div>
   )
 }

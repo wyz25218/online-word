@@ -27,10 +27,11 @@ model Doc {
   currentVersion BigInt    @default(0) @map("current_version") // 最新快照点版本（collab 经内部接口回写）
   lastActiveAt   DateTime  @default(now()) @map("last_active_at") @db.Timestamptz(6)
 
-  members     DocMember[]
-  attachments Attachment[]
-  comments    Comment[]
-  revisions   DocRevision[]
+  members      DocMember[]
+  attachments  Attachment[]
+  comments     Comment[]
+  revisions    DocRevision[]
+  shareLink    DocShareLink?
 
   @@index([ownerId], map: "idx_docs_owner")
   @@map("docs")
@@ -102,4 +103,18 @@ model DocRevision {
 
   @@index([docId, createdAt], map: "idx_revisions_doc_time")
   @@map("doc_revisions")
+}
+
+// T2.5：分享与链接（docs/03 §2 / docs/06 §2）。
+// 每文档一条，doc_id 为 PK（覆盖式 upsert）；mode 四档 CHECK 在迁移 SQL 中表达；
+// token private/org 模式下可空，anyone_view/edit 模式下必须有值且 UNIQUE。
+model DocShareLink {
+  docId     String   @id @map("doc_id") @db.Uuid
+  mode      String   // CHECK 约束在迁移 SQL 中（private/org/anyone_view/anyone_edit）
+  token     String?  @unique
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  doc Doc @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  @@map("doc_share_links")
 }

@@ -9,5 +9,6 @@ import { DocsService } from './docs.service.js'
   imports: [AuthModule, PermissionsModule],
   controllers: [DocsController],
   providers: [DocsService],
+  exports: [DocsService],
 })
 export class DocsModule {}

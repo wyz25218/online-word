@@ -5,6 +5,7 @@ import { getSession } from './api/client'
 import LoginPage from './features/auth/LoginPage'
 import DocsListPage from './features/docs/DocsListPage'
 import DocEditorPage from './features/docs/DocEditorPage'
+import AnonymousEditorPage from './features/docs/AnonymousEditorPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,6 +31,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* T2.5 匿名分享公开路由（无 RequireAuth） */}
+          <Route path="/share/:token" element={<AnonymousEditorPage />} />
           <Route
             path="/"
             element={

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common'
 import { z } from 'zod'
-import { permissionOf, type AuthResult } from '@online-word/shared'
+import { colorForUser, permissionOf, type AuthResult, type DocRole, type LinkShare } from '@online-word/shared'
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js'
 import { CommentsService } from '../comments/comments.service.js'
 import { ExtractedPayloadSchema, type ExtractedPayload } from '../comments/comments.dto.js'
@@ -26,6 +26,15 @@ function denyResult(userId: string): AuthResult {
   }
 }
 
+/** T2.5：share-link mode → 匿名角色映射 */
+function anonRoleFromMode(mode: LinkShare): DocRole | undefined {
+  switch (mode) {
+    case 'anyone_view': return 'viewer'
+    case 'anyone_edit': return 'editor'
+    default: return undefined // private/org → 拒绝
+  }
+}
+
 /**
  * 服务间内部接口（x-internal-key 保护，禁止暴露给浏览器）。
  * 非成员返回 200 + ok:false：让网关能区分"业务上无权"（正常结论）与"服务异常"（非 200）。
@@ -45,7 +54,13 @@ export class InternalController {
   async membership(
     @Param('docId', new ZodValidationPipe(InternalDocIdSchema)) docId: string,
     @Query('userId', new ZodValidationPipe(InternalUserIdSchema)) userId: string,
+    @Query('linkToken', new ZodValidationPipe(z.string().min(8).max(128).optional())) linkToken?: string,
   ): Promise<AuthResult> {
+    // T2.5 匿名链路：userId 以 'anon:' 开头且携带 linkToken → 查 share-link mode 兜底
+    if (userId.startsWith('anon:')) {
+      return await this.handleAnonymous(docId, userId, linkToken)
+    }
+
     const role = await this.permissions.getMemberRole(docId, userId)
     if (role === undefined) {
       console.log(`[internal] membership denied docId=${docId} userId=${userId}`)
@@ -62,6 +77,38 @@ export class InternalController {
         color: user?.color ?? FALLBACK_COLOR,
         role,
       },
+      ttlMs: MEMBERSHIP_TTL_MS,
+    }
+  }
+
+  /** T2.5 匿名分享链路：按 linkToken 查 share-link mode，下发只读/读写权限 */
+  private async handleAnonymous(docId: string, anonUserId: string, linkToken?: string): Promise<AuthResult> {
+    if (!linkToken) {
+      console.warn(`[internal] anon auth missing linkToken userId=${anonUserId}`)
+      return denyResult(anonUserId)
+    }
+    const link = await this.permissions.findByToken(linkToken)
+    if (link === undefined || link.docId !== docId) {
+      console.warn(`[internal] anon auth invalid linkToken doc=${docId}`)
+      return denyResult(anonUserId)
+    }
+    const role = anonRoleFromMode(link.mode)
+    if (role === undefined) {
+      // 模式已切回 private/org，但之前签发的匿名 JWT 仍在用 → 拒绝（重连时会换新 token）
+      console.log(`[internal] anon denied mode=${link.mode} doc=${docId}`)
+      return denyResult(anonUserId)
+    }
+
+    // 匿名身份展示名：userId 后半部分（'anon:xxxx-uuid' → '访客 xxxx'）
+    const anonSuffix = anonUserId.slice(-4)
+    const displayName = `访客 ${anonSuffix}`
+    const color = colorForUser(anonUserId)
+    console.log(`[internal] anon ok doc=${docId} mode=${link.mode} role=${role} userId=${anonUserId}`)
+
+    return {
+      ok: true,
+      permission: permissionOf(role),
+      user: { userId: anonUserId, name: displayName, color, role },
       ttlMs: MEMBERSHIP_TTL_MS,
     }
   }

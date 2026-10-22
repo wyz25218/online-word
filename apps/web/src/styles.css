@@ -993,3 +993,186 @@ body {
 .editor-layout:has(.comments-panel):has(.revisions-panel) .editor-body {
   max-width: 620px;
 }
+
+/* ─────────── T2.5 分享面板 ─────────── */
+
+.share-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  z-index: 100;
+  animation: share-fade 0.15s ease-out;
+}
+
+@keyframes share-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.share-panel {
+  width: 440px;
+  max-height: 100vh;
+  overflow-y: auto;
+  background: #fff;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.16);
+  animation: share-slide 0.2s ease-out;
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes share-slide {
+  from { transform: translateX(20px); opacity: 0.6; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.share-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e5e7;
+}
+
+.share-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.share-loading,
+.share-error {
+  padding: 20px;
+  font-size: 13px;
+}
+
+.share-error {
+  color: #dc2626;
+}
+
+.share-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.share-section h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6e6e73;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.share-members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.share-member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #f7f8fa;
+  border-radius: 8px;
+}
+
+.share-member-role {
+  margin-left: auto;
+}
+
+.share-member-role select {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 12.5px;
+  background: #fff;
+}
+
+.share-invite {
+  margin-top: 10px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.share-invite select,
+.share-invite input {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12.5px;
+}
+
+.share-invite input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.share-invite-error {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: #dc2626;
+}
+
+.share-mode {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.share-mode select {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  background: #fff;
+  min-width: 210px;
+}
+
+.share-link-row {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.share-link-input {
+  flex: 1;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: #0b57d0;
+  background: #f4f8fd;
+}
+
+.share-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #86868b;
+}
+
+/* 匿名页头部徽标 */
+.share-anon-badge {
+  margin-left: auto;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #fff7d6;
+  border: 1px solid #f0d47a;
+  color: #8a6d00;
+}

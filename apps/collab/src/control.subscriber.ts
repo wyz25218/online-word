@@ -42,21 +42,36 @@ export function startControlSubscriber(
       console.warn('[control] invalid message:', raw.slice(0, 120))
       return
     }
-    if (event.action !== 'membership-changed') return
 
-    let kicked = 0
     const connections = hooks.getConnections(event.docId)
-    if (connections !== undefined) {
+    if (connections === undefined) return
+
+    if (event.action === 'membership-changed') {
+      let kicked = 0
       for (const conn of connections) {
         const uid = conn.context?.user?.userId
         if (uid === event.userId) {
-          // 自定义关闭码 4003：客户端 onClose 可识别"权限变更被断开"（当前重连逻辑无需特判）
           conn.close({ code: 4003, reason: 'membership-changed' })
           kicked++
         }
       }
+      console.log(`[control] membership-changed doc=${event.docId} user=${event.userId} kicked=${kicked}`)
+      return
     }
-    console.log(`[control] membership-changed doc=${event.docId} user=${event.userId} kicked=${kicked}`)
+
+    if (event.action === 'share-mode-changed') {
+      // T2.5：模式切回 private/org → 断开所有匿名用户连接（让他们重连时被拒）
+      let kicked = 0
+      for (const conn of connections) {
+        const uid = conn.context?.user?.userId
+        if (uid !== undefined && uid.startsWith('anon:')) {
+          conn.close({ code: 4003, reason: 'share-mode-changed' })
+          kicked++
+        }
+      }
+      console.log(`[control] share-mode-changed doc=${event.docId} anon_kicked=${kicked}`)
+      return
+    }
   })
 
   return sub

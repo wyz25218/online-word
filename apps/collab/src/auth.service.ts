@@ -29,6 +29,8 @@ interface CollabClaims extends JWTPayload {
   sub: string
   docId: string
   jti: string
+  /** T2.5 匿名分享链路：share-link token，internal membership 接口据此查 mode 下发权限 */
+  linkToken?: string
 }
 
 /** 拒绝结论的占位 user（AuthResult 契约要求 user 必填；网关拒绝后不会进入连接上下文） */
@@ -39,13 +41,11 @@ const DENIED: AuthResult = {
   ttlMs: 0,
 }
 
-function membershipCacheKey(docId: string, userId: string): string {
-  return `collab:membership:${docId}:${userId}`
-}
-
-async function fetchMembership(docId: string, userId: string): Promise<AuthResult> {
+async function fetchMembership(docId: string, userId: string, linkToken?: string): Promise<AuthResult> {
+  const params = new URLSearchParams({ userId })
+  if (linkToken) params.set('linkToken', linkToken)
   const res = await fetch(
-    `${INTERNAL_URL}/internal/docs/${docId}/membership?userId=${encodeURIComponent(userId)}`,
+    `${INTERNAL_URL}/internal/docs/${docId}/membership?${params.toString()}`,
     {
       headers: { 'x-internal-key': INTERNAL_API_KEY },
       signal: AbortSignal.timeout(MEMBERSHIP_TIMEOUT_MS),
@@ -55,17 +55,29 @@ async function fetchMembership(docId: string, userId: string): Promise<AuthResul
   return (await res.json()) as AuthResult
 }
 
-async function getMembershipCached(docId: string, userId: string): Promise<AuthResult> {
-  const key = membershipCacheKey(docId, userId)
-  const cached = await redis.get(key).catch((err: unknown) => {
+async function getMembershipCached(docId: string, userId: string, linkToken?: string): Promise<AuthResult> {
+  // 匿名用户的缓存 key 必须包含 linkToken（不同 token 权限可能不同；且 linkToken 为空时仍与真实用户隔离）
+  const cacheKey = linkToken
+    ? `collab:membership:${docId}:anon:${linkToken}`
+    : `collab:membership:${docId}:${userId}`
+  let cached: string | null = null
+  try {
+    cached = await redis.get(cacheKey)
+  } catch (err) {
     console.warn(`[auth] Redis 缓存读取失败，降级直查后端:`, err instanceof Error ? err.message : err)
-    return null
-  })
-  if (cached !== null) return JSON.parse(cached) as AuthResult
+  }
+  // 缓存内容做边界校验：Redis 异常/协议错位时可能拿到非 JSON 串，不能因此保守拒绝合法用户
+  if (typeof cached === 'string' && cached.startsWith('{')) {
+    try {
+      return JSON.parse(cached) as AuthResult
+    } catch {
+      console.warn('[auth] 鉴权缓存内容非法，忽略并降级直查后端')
+    }
+  }
 
-  const result = await fetchMembership(docId, userId)
+  const result = await fetchMembership(docId, userId, linkToken)
   if (result.ok && result.ttlMs > 0) {
-    await redis.set(key, JSON.stringify(result), 'PX', result.ttlMs).catch(() => {})
+    await redis.set(cacheKey, JSON.stringify(result), 'PX', result.ttlMs).catch(() => {})
   }
   return result
 }
@@ -92,7 +104,7 @@ export async function verifyToken(
   }
 
   try {
-    return await getMembershipCached(documentName, claims.sub)
+    return await getMembershipCached(documentName, claims.sub, claims.linkToken)
   } catch (err) {
     console.error(`[auth] membership 查询失败，保守拒绝:`, err instanceof Error ? err.message : err)
     return DENIED

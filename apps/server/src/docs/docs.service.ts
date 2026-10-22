@@ -48,6 +48,8 @@ export class DocsService {
     const doc = await prisma.$transaction(async (tx) => {
       const created = await tx.doc.create({ data: { title: input.title, ownerId: userId } })
       await tx.docMember.create({ data: { docId: created.id, userId, role: 'owner' } })
+      // T2.5 默认分享行：新建文档默认 private，token 为空（anyone_view/edit 切换时再生成）
+      await tx.docShareLink.create({ data: { docId: created.id, mode: 'private', token: null } })
       await tx.$executeRaw`
         INSERT INTO doc_snapshots (doc_id, version, state, size_bytes)
         VALUES (${created.id}::uuid, 0, decode('0000', 'hex'), 2)
