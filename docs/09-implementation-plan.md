@@ -121,7 +121,7 @@
 - [x] **T2.2 富格式扩展（3d）✅ 2026-10-10**：Table 全家桶、TaskList、Link、Underline、Highlight、HorizontalRule、CodeBlockLowlight；表格协同用例 C08 专项
 - [x] **T2.3 评论（4d）**：自研 CommentMark 扩展（threadId）；`comments` 顶层 Y.Array 命名空间；commenter 命名空间级权限；侧栏线程 UI；网关抽取 → server `/internal/extracted` 回写 comments 表；resolved 折叠；C09 用例 ✅ 2026-10-10
 - [x] **T2.4 版本历史（3d）✅ 2026-10-22**：手动 + 10 分钟定时 revision；时间轴 UI；只读预览；恢复走"整体替换 update"（04 文档第 7 节），禁止清空重建；C15 用例
-- [ ] **T2.5 分享与权限面板（2d）**：邀请/改角色/移除；链接四档 + 随机 token；匿名只读端到端；C17 用例
+- [x] **T2.5 分享与权限面板（2d）✅ 2026-10-22**：邀请/改角色/移除；链接四档 + 随机 token；匿名只读端到端；C17 用例
 - [ ] **T2.6 docx 导入导出（3d）**：LibreOffice headless 容器；异步任务队列 + MinIO 临时签名 URL；导入生成新文档初始快照；20 个真实 Word 样例评审
 - [ ] **T2.7 @提及/通知/查找替换/大纲（1.5d）**：Mention 扩展 + 通知表（应用内）；标题大纲定位；查找替换
 - [ ] **T2.8 压测与大文档专项（2.5d）**：50 人房间 8h（k6/ws）；10 万字文档首屏与输入流畅度；C13 长离线、C18 重启风暴
@@ -364,3 +364,13 @@
     - 定时保存版本（proseMirrorJson 可空）的恢复路径——revDetail 返回 pmJson 为 null 时需 client 侧临时 `new Y.Doc()` + `Y.applyUpdate(stateBytes)` + `editor.setContent(ydoc.getXmlFragment('prosemirror').toJSON(), { emitUpdate:true })`，当前 RevisionsPanel 未区分处理（server 层 state 字段已返回给前端可直接用，只差 client 分支）。
     - `setContent({ emitUpdate:true })` 是否真的触发 y-prosemirror update 广播的集成测试（静态分析显示 y-prosemirror 对 emitUpdate 有支持，但未端到端验证）。
     - 双侧栏窄屏（<620px）CSS 兜底未经实际 UI 验证。
+- 2026-10-22 **T2.5 完成**。
+  - DB：`doc_share_links`（`doc_id` PK + `mode` CHECK 四档 private/org/anyone_view/anyone_edit + `token` UNIQUE + `updated_at`）；`DocsService.create` 同事务插默认 `private/token=null`；存量 11 篇用 `apps/server/scripts/backfill-share-links.mts` 回填（**必须先 `import '../src/env.js'`**，ESM import 提升会让 `DATABASE_URL` 未加载）。
+  - Server：`ShareLinksController`（`GET/PUT /docs/:id/share-link`，owner 专属，zod `ShareModeSchema`）；`AnonymousShareController`（公开 `GET /share/:token`，无 guard）签发 `sub='anon:<uuid>'` 且带 `linkToken` claim 的 collab JWT；分享 token 用 `randomBytes(32)` → base32url（52 字符），不用 uuid。
+  - Internal：membership 接口新增 anon 分支；`InternalUserIdSchema` 从 `z.string().uuid()` 放宽为 `UUID | anon:<uuid>`——**这是匿名链路首轮失败根因**（原正则把 `anon:` 挡在 controller 前，collab 只看到 400）；anon 分支先校验 `link.docId === docId` 再按 mode 映射 viewer/editor。
+  - Collab：`CollabClaims.linkToken?` 透传；匿名缓存 key 用 `collab:membership:<docId>:anon:<linkToken>`（必须与真实用户隔离）；新增缓存值边界校验（非 JSON 缓存不再导致"保守拒绝"，直接降级直查 DB）。
+  - 控制事件：`CollabControlEvent` 扩为可辨识联合并新增 `share-mode-changed`；`setShareLink` 仅在 mode 真变化时 PUBLISH；`control.subscriber` 断开该文档下所有 `anon:` 连接（close 4003）。
+  - Web：`SharePanel`（成员列表/邀请/改角色/移除 + 链接四档 + 复制/重置；仅 token 为空时才自动生成，模式内互切不复位 token）；公开路由 `/share/:token` + `AnonymousEditorPage`（`RequireAuth` 之外）；匿名续签传 `?anonId=` 复用同一身份，避免 awareness 访客跳变；修正 hooks 顺序（`useMemo` 曾在条件 return 之后导致页面崩溃）。
+  - 验证：`pnpm -r typecheck` 4 包 exit 0；API 9 场景 PASS（默认 private / 四档切换 / 新 token / 坏 token 404 / 切回 private 清空 token / 旧 token 404 / resetToken 换新 / anon membership ok=true permission=write|read / 缺 token deny）；浏览器双端 PASS（anyone_edit 匿名端 ↔ alice 双向实时同步、Console 0 error）；C17 只读 PASS（徽章「🔗 分享链接 · 只读」、只读模式标识、工具栏禁用、输入被拒、无评论入口、刷新后仍只读）；切回 private 后旧链接 404、匿名页回落为「登录 →」拒绝态。
+  - 环境限制：本机 Memurai/Redis 未安装（6379 无监听）→ `share-mode-changed` PUBLISH 不可用，**已连接的匿名会话只能在下一次重连时被拒**；缓存同时降级直查 DB，故重连即生效。立即踢人需 Redis 可用。
+  - 遗留（不阻塞）：`anyone_view`/`anyone_edit` 已连接的匿名会话在切 private 时不会即时断开（同上，依赖 Redis）。
